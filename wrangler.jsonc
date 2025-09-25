@@ -1,6 +1,6 @@
 {
   "name": "eu-fund-tracker",
-  "main": "src/index.ts",
+  "main": "src/index.js",
   "compatibility_date": "2023-03-14",
   "compatibility_flags": [
     "nodejs_compat"
