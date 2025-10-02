@@ -5,6 +5,7 @@ import { parseHTML } from 'linkedom';
 export function parseOpportunities(html) {
   const { document } = parseHTML(html);
 
+  // Collect anchors that point to opportunity detail pages (topic-details or competitive calls etc.)
   const rawAnchors = Array.from(document.querySelectorAll('a'))
     .filter(a => (a.href || '').includes('/screen/opportunities/'));
 
@@ -20,19 +21,44 @@ export function parseOpportunities(html) {
   const results = [];
   for (const { a, title } of dedup.values()) {
     const link = a.href;
-    const container = a.closest('[data-item], article, li, div');
-    const text = (container?.textContent || '').replace(/\s+/g,' ').trim();
+    // Find the most specific card root so we can extract all related metadata spans.
+    const cardRoot = a.closest('eui-card, sedia-result-card, sedia-result-card-calls-for-proposals') || a.closest('[data-item], article, li, div');
+    const text = (cardRoot?.textContent || '').replace(/\s+/g,' ').trim();
 
-    const idAndType = text.match(/([A-Z0-9][A-Z0-9-]{5,})\s*\|\s*([^|]*?(Calls? for proposals?|Tenders?|Grants?))/i);
-    const identifier = idAndType?.[1] || null;
-    const announcementType = idAndType?.[2]?.trim() || null;
+    // Extract identifier + announcement type using structural hints first (subtitle spans) to avoid title bleed.
+    let identifier = null; let announcementType = null;
+    if (cardRoot) {
+      const subtitle = cardRoot.querySelector('eui-card-header-subtitle');
+      if (subtitle) {
+        const spanTexts = Array.from(subtitle.querySelectorAll('span')).map(s => s.textContent?.trim() || '').filter(Boolean);
+        // announcement type is one that matches known keywords and may contain spaces.
+        const annIndex = spanTexts.findIndex(t => /(Calls? for proposals?|Cascade funding|Tenders?|Grants?)/i.test(t));
+        if (annIndex !== -1) announcementType = spanTexts[annIndex];
+        // Candidate identifiers: spans without spaces OR with many hyphens but not matching announcement keywords.
+        const codeCandidates = spanTexts.filter((t,i) => i !== annIndex && !/(Calls? for proposals?|Cascade funding|Tenders?|Grants?)/i.test(t));
+        const structuredCodes = codeCandidates.filter(t => /[A-Z0-9]{2,}-[A-Z0-9]{2,}/i.test(t) || (!t.includes(' ') && /[A-Za-z0-9]/.test(t)));
+        if (structuredCodes.length) {
+          structuredCodes.sort((a,b) => (b.split('-').length - a.split('-').length) || b.length - a.length);
+          identifier = structuredCodes[0];
+        }
+      }
+    }
+    // Fallback regex across combined text if structural parse failed.
+    if (!identifier) {
+      const idPattern = /([A-Z0-9][A-Z0-9-]{5,})\s*\|\s*([^|]*?(Calls? for proposals?|Cascade funding|Tenders?|Grants?))/i;
+      const m = text.match(idPattern);
+      if (m) {
+        identifier = m[1].trim();
+        announcementType = announcementType || m[2].trim();
+      }
+    }
 
     const openingMatch = text.match(/Opening date:?\s*([0-9]{1,2}\s+\w+\s+[0-9]{4}|\d{4}-\d{2}-\d{2})/i) || text.match(/Open(?:s|ing)?:?\s*([0-9]{1,2}\s+\w+\s+[0-9]{4}|\d{4}-\d{2}-\d{2})/i);
     const deadlineMatch = text.match(/Deadline date:?\s*([0-9]{1,2}\s+\w+\s+[0-9]{4}|\d{4}-\d{2}-\d{2})/i) || text.match(/Deadline:?\s*([0-9]{1,2}\s+\w+\s+[0-9]{4}|\d{4}-\d{2}-\d{2})/i);
 
     let status = null;
-    if (container) {
-      const badge = container.querySelector('[class*="status" i], [class*="badge" i]');
+    if (cardRoot) {
+      const badge = cardRoot.querySelector('[class*="status" i], [class*="badge" i], eui-chip');
       status = badge?.textContent?.trim() || null;
     }
     if (!status) {
@@ -47,6 +73,23 @@ export function parseOpportunities(html) {
 
     const stageMatch = text.match(/(Single-stage|Two-stage)/i);
     const stage = stageMatch?.[1] || null;
+
+    // Additional fallbacks for identifier if relaxed pattern gave us something too generic or null.
+    if (!identifier || /Opening date:/i.test(identifier)) {
+      // Try to extract a strong code pattern inside text (many hyphens & digits)
+      const strongCode = text.match(/([A-Z0-9]{2,}(?:-[A-Z0-9]{2,}){2,}(?:-[A-Z0-9][A-Z0-9-]{1,})?)/);
+      if (strongCode) identifier = strongCode[1];
+    }
+    if (!identifier) {
+      // Fallback: numeric id from competitive-calls-cs/{id}
+      const numericId = link.match(/competitive-calls-cs\/(\d+)/i)?.[1];
+      if (numericId) identifier = numericId;
+    }
+    if (!identifier) {
+      // As a last resort use the first word(s) before a pipe if present
+      const firstSegment = text.split('|')[0].trim().split(/\s{2,}/)[0].trim();
+      if (firstSegment && firstSegment.length < 60) identifier = firstSegment;
+    }
 
     results.push({
       title: title || 'Untitled call',
