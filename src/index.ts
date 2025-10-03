@@ -80,14 +80,7 @@ export default {
 			});
 		}
 
-		// Fallback: build fresh (browser if available)
-		try {
-			const snapshot = await buildAndStoreSnapshot(target, env);
-			const { xml } = itemsToRssXml(snapshot.items, FEED_URL.toString(), target);
-			return new Response(xml, { headers: { 'Content-Type': 'application/rss+xml; charset=utf-8', 'X-Mode': 'fresh' } });
-		} catch (e: any) {
-			return new Response('Scrape error: ' + (e?.message || e), { status: 500 });
-		}
+		throw new Error("Summaries haven't been generated yet");
 	},
 
 	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
