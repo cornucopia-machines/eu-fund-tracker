@@ -67,58 +67,53 @@ export async function summarizeLink(
 	url: string,
 	{ fetchImpl = fetch, env, modelOverride, browserPage }: { fetchImpl?: typeof fetch; env: Env; modelOverride?: string; browserPage?: any }
 ) {
-	try {
-		let html: string;
-		if (browserPage) {
-			try {
-				await browserPage.setUserAgent('Mozilla/5.0 (compatible; WorkersScraper/1.0)');
-			} catch {}
-			await browserPage.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
-			html = await browserPage.content();
-		} else {
-			const res = await fetchImpl(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Summarizer/1.0)' } });
-			if (!res.ok) return null;
-			html = await res.text();
-		}
-		const markdown = htmlToMarkdown(html);
+  let html: string;
+  if (browserPage) {
+    try {
+      await browserPage.setUserAgent('Mozilla/5.0 (compatible; WorkersScraper/1.0)');
+    } catch {}
+    await browserPage.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
+    html = await browserPage.content();
+  } else {
+    const res = await fetchImpl(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Summarizer/1.0)' } });
+    if (!res.ok) return null;
+    html = await res.text();
+  }
+  const markdown = htmlToMarkdown(html);
 
-		// Attempt Workers AI summarization if binding present.
-		console.log(`Summarizing ${url}`);
-		if (env?.AI) {
-			const model = modelOverride || env.SUMMARY_MODEL || '@cf/meta/llama-3.1-8b-instruct';
-			const snippet = markdown.slice(0, 5000);
-			const prompt = `
-        Summarize the following EU funding call description in <= 100 words in a single paragraph.
-        Include key points like what the funding is for, who can apply,
-        how much can be requested, and any specific requirements.
+  // Attempt Workers AI summarization if binding present.
+  console.log(`Summarizing ${url}`);
+  if (env?.AI) {
+    const model = modelOverride || env.SUMMARY_MODEL || '@cf/meta/llama-3.1-8b-instruct';
+    const snippet = markdown.slice(0, 5000);
+    const prompt = `
+      Summarize the following EU funding call description in <= 100 words in a single paragraph.
+      Include key points like what the funding is for, who can apply,
+      how much can be requested, and any specific requirements.
 
-        In a second paragraph give a score between 0-100 for how well the call fits my project,
-        which is a smart IoT irrigation product for home gardeners and small farms that helps users
-        grow their own food without much knowledge of farming. State the score and explain your
-        reasoning briefly without describing my project.
+      In a second paragraph give a score between 0-100 for how well the call fits my project,
+      which is a smart IoT irrigation product for home gardeners and small farms that helps users
+      grow their own food without much knowledge of farming. State the score and explain your
+      reasoning briefly without describing my project.
 
-        Use plain concise English, no intro labels, no marketing fluff, form regular sentences.
-        You can use Markdown formatting for emphasis and structure where needed.
-        \n\n"""${snippet}"""
-      `;
-			try {
-				const aiResp = await env.AI.run(model, {
-					messages: [
-						{ role: 'system', content: 'You generate concise neutral summaries of EU funding call descriptions.' },
-						{ role: 'user', content: prompt },
-					],
-				});
-				const aiText: string | undefined = aiResp?.response || aiResp?.result || aiResp?.text;
-				if (aiText) {
-					console.log(`Got summary from AI: ${aiText}`);
-					return aiText;
-				}
-			} catch {}
-		}
-		return naiveSummarize(markdown);
-	} catch {
-		return null;
-	}
+      Use plain concise English, no intro labels, no marketing fluff, form regular sentences.
+      You can use Markdown formatting for emphasis and structure where needed.
+      \n\n"""${snippet}"""
+    `;
+      const aiResp = await env.AI.run(model, {
+        messages: [
+          { role: 'system', content: 'You generate concise neutral summaries of EU funding call descriptions.' },
+          { role: 'user', content: prompt },
+        ],
+      });
+      const aiText: string | undefined = aiResp?.response || aiResp?.result || aiResp?.text;
+      if (aiText) {
+        console.log(`Got summary from AI: ${aiText}`);
+        return aiText;
+      } else {
+        throw new Error('No text in AI response');
+      }
+  }
 }
 
 export async function enrichWithSummaries(items: Opportunity[], env: Env, opts: SummarizeOptions = {}): Promise<Opportunity[]> {

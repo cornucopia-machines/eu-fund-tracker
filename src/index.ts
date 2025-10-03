@@ -12,6 +12,7 @@ async function fetchListingHtml(
 	useBrowser: boolean,
 	env: Env
 ): Promise<{ html: string; page?: any; browser?: any; mode: string }> {
+  console.log(`Fetching listing HTML from ${target} using ${useBrowser ? 'browser' : 'fetch'}`);
 	if (!useBrowser) {
 		const res = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WorkersScraper/1.0)' } });
 		if (!res.ok) throw new Error('Upstream fetch failed: ' + res.status);
@@ -30,7 +31,7 @@ async function buildAndStoreSnapshot(target: string, env: Env) {
 	const { html, page, browser } = await fetchListingHtml(target, !!env.BROWSER, env);
 	try {
 		let items = parseOpportunities(html);
-		items = await enrichWithSummaries(items, env, { force: false, browserPage: page, model: env.SUMMARY_MODEL || 'gpt-oss-20b', target });
+		items = await enrichWithSummaries(items, env, { force: false, browserPage: page, model: env.SUMMARY_MODEL, target });
 		const snapshot = { updatedAt: new Date().toISOString(), target, count: items.length, items };
 		if (!env.SUMMARIES) {
 			throw new Error('No SUMMARIES KV namespace binding');
@@ -91,6 +92,7 @@ export default {
 
 	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
 		try {
+      console.log('Scheduled snapshot build starting');
 			await buildAndStoreSnapshot(DEFAULT_FEED_URL, env);
 			console.log('Snapshot updated');
 		} catch (e: any) {
