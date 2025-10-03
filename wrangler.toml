@@ -16,3 +16,6 @@ preview_id = "4023508fc658423dbd38b1acc23d0e38"
 
 [ai]
 binding = "AI"
+
+[triggers]
+crons = ["0 */2 * * *"]

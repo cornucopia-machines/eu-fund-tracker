@@ -109,9 +109,9 @@ export async function summarizeLink(
 				});
 				const aiText: string | undefined = aiResp?.response || aiResp?.result || aiResp?.text;
 				if (aiText) {
-          console.log(`Got summary from AI: ${aiText}`);
-          return aiText;
-        }
+					console.log(`Got summary from AI: ${aiText}`);
+					return aiText;
+				}
 			} catch {}
 		}
 		return naiveSummarize(markdown);
@@ -126,12 +126,13 @@ export async function enrichWithSummaries(items: Opportunity[], env: Env, opts: 
 	const kv = env?.SUMMARIES;
 	let newCount = 0;
 	for (const item of items) {
+		if (item.summary) continue;
 		const url = target ? new URL(item.link, target).toString() : item.link;
 		if (!force && kv) {
 			try {
 				const cached = await kv.get(url);
 				if (cached) {
-          console.log(`Using cached summary for ${url}`);
+					console.log(`Using cached summary for ${url}`);
 					item.summary = cached;
 					continue;
 				}

@@ -1,43 +1,54 @@
 import { parseOpportunities, itemsToRssXml } from './parsePage';
 import { enrichWithSummaries } from './summarize';
-import type { Env } from './types';
+import type { Env, Opportunity } from './types';
 
-interface FetchParams {
-	summarize: boolean;
-	forceSummary: boolean;
-	summaryModel?: string;
-	pageSize: string;
-}
+// Key for storing latest snapshot JSON
+const SNAPSHOT_KEY = 'snapshot:items:v1';
+const DEFAULT_FEED_URL = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/calls-for-proposals?isExactMatch=true&status=31094501,31094502&order=DESC&pageNumber=1&pageSize=9999&sortBy=startDate`;
 
-function extractParams(url: URL): FetchParams {
-	return {
-		summarize: url.searchParams.get('summarize') !== '0',
-		forceSummary: url.searchParams.get('forceSummary') === '1',
-		summaryModel: url.searchParams.get('summaryModel') || undefined,
-		pageSize: url.searchParams.get('pageSize') || '9999',
-	};
-}
-
-async function buildRss(itemsHtml: string, feedUrl: string, target: string, env: Env, p: FetchParams, browserPage?: any) {
-	let items = parseOpportunities(itemsHtml);
-	if (p.summarize) {
-		items = await enrichWithSummaries(items, env, {
-			force: p.forceSummary,
-			model: p.summaryModel,
-			target,
-			browserPage,
-		});
+async function fetchListingHtml(
+	target: string,
+	useBrowser: boolean,
+	env: Env
+): Promise<{ html: string; page?: any; browser?: any; mode: string }> {
+	if (!useBrowser) {
+		const res = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WorkersScraper/1.0)' } });
+		if (!res.ok) throw new Error('Upstream fetch failed: ' + res.status);
+		return { html: await res.text(), mode: 'no-browser' };
 	}
-	return itemsToRssXml(items, feedUrl, target).xml;
+	const puppeteer: any = await import('@cloudflare/puppeteer');
+	const browser = await puppeteer.launch(env.BROWSER);
+	const page = await browser.newPage();
+	await page.setUserAgent('Mozilla/5.0 (compatible; WorkersScraper/1.0)');
+	await page.goto(target, { waitUntil: 'networkidle0', timeout: 120000 });
+	const html = await page.content();
+	return { html, page, browser, mode: 'browser' };
+}
+
+async function buildAndStoreSnapshot(target: string, env: Env) {
+	const { html, page, browser } = await fetchListingHtml(target, !!env.BROWSER, env);
+	try {
+		let items = parseOpportunities(html);
+		items = await enrichWithSummaries(items, env, { force: false, browserPage: page, model: env.SUMMARY_MODEL || 'gpt-oss-20b', target });
+		const snapshot = { updatedAt: new Date().toISOString(), target, count: items.length, items };
+		if (!env.SUMMARIES) {
+			throw new Error('No SUMMARIES KV namespace binding');
+		}
+		await env.SUMMARIES.put(SNAPSHOT_KEY, JSON.stringify(snapshot), {
+			expirationTtl: 60 * 60 * 24, // 1 day
+		});
+		return snapshot;
+	} finally {
+		try {
+			await browser?.close();
+		} catch {}
+	}
 }
 
 export default {
 	async fetch(req: Request, env: Env): Promise<Response> {
 		const FEED_URL = new URL(req.url);
-		const params = extractParams(FEED_URL);
-		const target =
-			FEED_URL.searchParams.get('url') ||
-			`https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/calls-for-proposals?isExactMatch=true&status=31094501,31094502&order=DESC&pageNumber=1&pageSize=${params.pageSize}&sortBy=startDate`;
+		const target = FEED_URL.searchParams.get('url') || DEFAULT_FEED_URL;
 
 		console.log('Fetching feed for target', target);
 
@@ -46,29 +57,43 @@ export default {
 		if (directHtml) {
 			try {
 				const html = decodeURIComponent(directHtml);
-				const xml = await buildRss(html, FEED_URL.toString(), target, env, params);
+				let items = parseOpportunities(html);
+				const xml = itemsToRssXml(items, FEED_URL.toString(), target).xml;
 				return new Response(xml, { headers: { 'Content-Type': 'application/rss+xml; charset=utf-8', 'X-Mode': 'direct-html' } });
 			} catch (e: any) {
 				return new Response('Bad html parameter: ' + (e?.message || e), { status: 400 });
 			}
 		}
 
-		// Browser path
-		const puppeteer: any = await import('@cloudflare/puppeteer');
-		const browser = await puppeteer.launch(env.BROWSER);
+		// Fast path: if snapshot exists and not forced refresh, serve from KV
+		if (!env.SUMMARIES) {
+			throw new Error('No SUMMARIES KV namespace binding');
+		}
+		const rawSnapshot = await env.SUMMARIES.get(SNAPSHOT_KEY);
+		if (rawSnapshot) {
+			const snapshot = JSON.parse(rawSnapshot) as { items: Opportunity[]; updatedAt: string; target: string };
+			const { xml } = itemsToRssXml(snapshot.items, FEED_URL.toString(), target);
+			return new Response(xml, {
+				headers: { 'Content-Type': 'application/rss+xml; charset=utf-8', 'X-Mode': 'snapshot', 'X-Updated-At': snapshot.updatedAt },
+			});
+		}
+
+		// Fallback: build fresh (browser if available)
 		try {
-			const page = await browser.newPage();
-			await page.setUserAgent('Mozilla/5.0 (compatible; WorkersScraper/1.0)');
-			await page.goto(target, { waitUntil: 'networkidle0', timeout: 120000 });
-			const html = await page.content();
-			const xml = await buildRss(html, FEED_URL.toString(), target, env, params, page);
-			return new Response(xml, { headers: { 'Content-Type': 'application/rss+xml; charset=utf-8' } });
+			const snapshot = await buildAndStoreSnapshot(target, env);
+			const { xml } = itemsToRssXml(snapshot.items, FEED_URL.toString(), target);
+			return new Response(xml, { headers: { 'Content-Type': 'application/rss+xml; charset=utf-8', 'X-Mode': 'fresh' } });
 		} catch (e: any) {
 			return new Response('Scrape error: ' + (e?.message || e), { status: 500 });
-		} finally {
-			try {
-				await browser?.close();
-			} catch {}
+		}
+	},
+
+	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+		try {
+			await buildAndStoreSnapshot(DEFAULT_FEED_URL, env);
+			console.log('Snapshot updated');
+		} catch (e: any) {
+			console.error('Snapshot build failed', e?.message || e);
 		}
 	},
 };
