@@ -11,11 +11,11 @@
 	},
 	"devDependencies": {
 		"@cloudflare/puppeteer": "^1.0.4",
-		"@cloudflare/vitest-pool-workers": "^0.8.19",
-		"linkedom": "^0.16.11",
-		"typescript": "^5.5.2",
-		"vitest": "~3.2.0",
-		"wrangler": "^4.40.1"
+		"@cloudflare/vitest-pool-workers": "^0.9.10",
+		"linkedom": "^0.18.12",
+		"typescript": "^5.9.3",
+		"vitest": "~3.2.4",
+		"wrangler": "^4.42.0"
 	},
 	"dependencies": {
 		"@types/luxon": "^3.7.1",
