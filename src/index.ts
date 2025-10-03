@@ -27,11 +27,12 @@ async function fetchListingHtml(
 	return { html, page, browser, mode: 'browser' };
 }
 
-async function buildAndStoreSnapshot(target: string, env: Env) {
+async function buildAndStoreSnapshot(target: string, env: Env, options: { limit?: number } = {}) {
+  const { limit } = options;
 	const { html, page, browser } = await fetchListingHtml(target, !!env.BROWSER, env);
 	try {
 		let items = parseOpportunities(html);
-		items = await enrichWithSummaries(items, env, { force: false, browserPage: page, model: env.SUMMARY_MODEL, target });
+		items = await enrichWithSummaries(items, env, { force: false, browserPage: page, model: env.SUMMARY_MODEL, limit, target });
 		const snapshot = { updatedAt: new Date().toISOString(), target, count: items.length, items };
 		if (!env.SUMMARIES) {
 			throw new Error('No SUMMARIES KV namespace binding');
@@ -71,6 +72,17 @@ export default {
 		if (!env.SUMMARIES) {
 			throw new Error('No SUMMARIES KV namespace binding');
 		}
+
+    if (FEED_URL.searchParams.get('regenerate') === '1') {
+      console.log('Regeneration requested, rebuilding snapshot');
+      try {
+        const limit = FEED_URL.searchParams.get('limit') ? parseInt(FEED_URL.searchParams.get('limit')!) : undefined;
+        await buildAndStoreSnapshot(target, env, { limit });
+      } catch (e: any) {
+        return new Response('Regeneration error: ' + (e?.message || e), { status: 500 });
+      }
+    }
+
 		const rawSnapshot = await env.SUMMARIES.get(SNAPSHOT_KEY);
 		if (rawSnapshot) {
 			const snapshot = JSON.parse(rawSnapshot) as { items: Opportunity[]; updatedAt: string; target: string };
