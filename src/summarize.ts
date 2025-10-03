@@ -90,9 +90,12 @@ export async function summarizeLink(
         Summarize the following EU funding call description in <= 100 words in a single paragraph.
         Include key points like what the funding is for, who can apply,
         how much can be requested, and any specific requirements.
-        Give a score between 0-100 for how well the call fits my project, which is a smart watering
-        product for home gardeners and small farms that helps users grow their own food without much
-        knowledge of farming.
+
+        In a second paragraph give a score between 0-100 for how well the call fits my project,
+        which is a smart IoT irrigation product for home gardeners and small farms that helps users
+        grow their own food without much knowledge of farming. State the score and explain your
+        reasoning briefly without describing my project.
+
         Use plain concise English, no intro labels, no marketing fluff, form regular sentences.
         You can use Markdown formatting for emphasis and structure where needed.
         \n\n"""${snippet}"""
