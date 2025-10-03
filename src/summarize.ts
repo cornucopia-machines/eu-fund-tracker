@@ -1,5 +1,6 @@
 import { parseHTML } from 'linkedom';
 import type { Opportunity, Env, SummarizeOptions } from './types';
+import { Duration } from "luxon";
 
 /**
  * Heuristic summarizer: returns the first ~40 words of body stripping whitespace.
@@ -144,7 +145,7 @@ export async function enrichWithSummaries(items: Opportunity[], env: Env, opts: 
 			item.summary = summary;
 			if (kv) {
 				try {
-					await kv.put(url, summary, { expirationTtl: 60 * 60 * 24 * 14 });
+					await kv.put(url, summary, { expirationTtl: Duration.fromObject({ weeks: 2 }).as('seconds') });
 				} catch {}
 			}
 			newCount++;

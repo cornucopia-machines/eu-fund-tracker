@@ -1,3 +1,4 @@
+import { Duration } from 'luxon';
 import { parseOpportunities, itemsToRssXml } from './parsePage';
 import { enrichWithSummaries } from './summarize';
 import type { Env, Opportunity } from './types';
@@ -35,7 +36,7 @@ async function buildAndStoreSnapshot(target: string, env: Env) {
 			throw new Error('No SUMMARIES KV namespace binding');
 		}
 		await env.SUMMARIES.put(SNAPSHOT_KEY, JSON.stringify(snapshot), {
-			expirationTtl: 60 * 60 * 24, // 1 day
+			expirationTtl: Duration.fromObject({ days: 1 }).as('seconds'),
 		});
 		return snapshot;
 	} finally {
