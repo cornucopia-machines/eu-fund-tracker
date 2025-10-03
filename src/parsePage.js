@@ -123,10 +123,11 @@ export function itemsToRssXml(items, feedUrl, targetUrl) {
       (r.programmeName || r.actionType) && [
         r.programmeName && `Programme: ${r.programmeName}`,
         r.actionType && `Type of action: ${r.actionType}`
-      ].filter(Boolean).join(' | ')
+      ].filter(Boolean).join(' | '),
+      r.summary && `Summary: ${r.summary}`
     ].filter(Boolean);
     const desc = lines.join('<br/>');
-    return `\n  <item>\n    <guid isPermaLink="true">${esc(r.link)}</guid>\n    <title>${esc(r.title)}</title>\n    <link>${esc(r.link)}</link>\n    <pubDate>${pubDate}</pubDate>\n    <description><![CDATA[${desc}]]></description>\n    ${r.identifier ? `<identifier>${esc(r.identifier)}</identifier>` : ''}\n    ${r.announcementType ? `<announcementType>${esc(r.announcementType)}</announcementType>` : ''}\n    ${r.status ? `<status>${esc(r.status)}</status>` : ''}\n    ${r.opening ? `<openingDate>${esc(r.opening)}</openingDate>` : ''}\n    ${r.deadline ? `<deadlineDate>${esc(r.deadline)}</deadlineDate>` : ''}\n    ${r.programmeName ? `<programmeName>${esc(r.programmeName)}</programmeName>` : ''}\n    ${r.actionType ? `<actionType>${esc(r.actionType)}</actionType>` : ''}\n    ${r.stage ? `<stage>${esc(r.stage)}</stage>` : ''}\n  </item>`;
+    return `\n  <item>\n    <guid isPermaLink="true">${esc(r.link)}</guid>\n    <title>${esc(r.title)}</title>\n    <link>${esc(r.link)}</link>\n    <pubDate>${pubDate}</pubDate>\n    <description><![CDATA[${desc}]]></description>\n    ${r.identifier ? `<identifier>${esc(r.identifier)}</identifier>` : ''}\n    ${r.announcementType ? `<announcementType>${esc(r.announcementType)}</announcementType>` : ''}\n    ${r.status ? `<status>${esc(r.status)}</status>` : ''}\n    ${r.opening ? `<openingDate>${esc(r.opening)}</openingDate>` : ''}\n    ${r.deadline ? `<deadlineDate>${esc(r.deadline)}</deadlineDate>` : ''}\n    ${r.programmeName ? `<programmeName>${esc(r.programmeName)}</programmeName>` : ''}\n    ${r.actionType ? `<actionType>${esc(r.actionType)}</actionType>` : ''}\n    ${r.stage ? `<stage>${esc(r.stage)}</stage>` : ''}\n    ${r.summary ? `<summary>${esc(r.summary)}</summary>` : ''}\n  </item>`;
   }).join('');
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n  <channel>\n    <title>EU Calls for Proposals — scraped</title>\n    <link>${esc(targetUrl)}</link>\n    <description>Rendered in headless Chromium and scraped</description>\n    <lastBuildDate>${now}</lastBuildDate>\n    <atom:link href="${esc(feedUrl)}" rel="self" type="application/rss+xml"/>\n    ${itemsXml}\n  </channel>\n</rss>`;

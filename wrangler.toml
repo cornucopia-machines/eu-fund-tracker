@@ -8,3 +8,11 @@ enabled = true
 
 [browser]
 binding = "BROWSER"
+
+[[kv_namespaces]]
+binding = "SUMMARIES"
+id = "36f31f2cacf14962a24cb0acb8f19778"
+preview_id = "4023508fc658423dbd38b1acc23d0e38"
+
+[ai]
+binding = "AI"
