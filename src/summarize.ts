@@ -117,7 +117,7 @@ export async function summarizeLink(
 }
 
 export async function enrichWithSummaries(items: Opportunity[], env: Env, opts: SummarizeOptions = {}): Promise<Opportunity[]> {
-	const { force = false, limit = 50, model, target, browserPage } = opts;
+	const { force = false, limit = 10, model, target, browserPage } = opts;
 	if (!items.length) return items;
 	const kv = env?.SUMMARIES;
 	let newCount = 0;
