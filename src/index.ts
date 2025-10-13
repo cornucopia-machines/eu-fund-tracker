@@ -50,18 +50,23 @@ async function buildAndStoreSnapshot(target: string, env: Env, options: { limit?
 
 export default {
 	async fetch(req: Request, env: Env): Promise<Response> {
-		const FEED_URL = new URL(req.url);
-		const target = FEED_URL.searchParams.get('url') || DEFAULT_FEED_URL;
+		const feedUrl = new URL(req.url);
+
+    if (feedUrl.pathname !== '/') {
+      return new Response('Not found', { status: 404 });
+    }
+
+		const target = feedUrl.searchParams.get('url') || DEFAULT_FEED_URL;
 
 		console.log('Fetching feed for target', target);
 
 		// Direct injected HTML test path
-		const directHtml = FEED_URL.searchParams.get('html');
+		const directHtml = feedUrl.searchParams.get('html');
 		if (directHtml) {
 			try {
 				const html = decodeURIComponent(directHtml);
 				let items = parseOpportunities(html);
-				const xml = itemsToRssXml(items, FEED_URL.toString(), target).xml;
+				const xml = itemsToRssXml(items, feedUrl.toString(), target).xml;
 				return new Response(xml, { headers: { 'Content-Type': 'application/rss+xml; charset=utf-8', 'X-Mode': 'direct-html' } });
 			} catch (e: any) {
 				return new Response('Bad html parameter: ' + (e?.message || e), { status: 400 });
@@ -73,10 +78,10 @@ export default {
 			throw new Error('No SUMMARIES KV namespace binding');
 		}
 
-    if (FEED_URL.searchParams.get('regenerate') === '1') {
+    if (feedUrl.searchParams.get('regenerate') === '1') {
       console.log('Regeneration requested, rebuilding snapshot');
       try {
-        const limit = FEED_URL.searchParams.get('limit') ? parseInt(FEED_URL.searchParams.get('limit')!) : undefined;
+        const limit = feedUrl.searchParams.get('limit') ? parseInt(feedUrl.searchParams.get('limit')!) : undefined;
         await buildAndStoreSnapshot(target, env, { limit });
       } catch (e: any) {
         return new Response('Regeneration error: ' + (e?.message || e), { status: 500 });
@@ -86,7 +91,7 @@ export default {
 		const rawSnapshot = await env.SUMMARIES.get(SNAPSHOT_KEY);
 		if (rawSnapshot) {
 			const snapshot = JSON.parse(rawSnapshot) as { items: Opportunity[]; updatedAt: string; target: string };
-			const { xml } = itemsToRssXml(snapshot.items, FEED_URL.toString(), target);
+			const { xml } = itemsToRssXml(snapshot.items, feedUrl.toString(), target);
 			return new Response(xml, {
 				headers: { 'Content-Type': 'application/rss+xml; charset=utf-8', 'X-Mode': 'snapshot', 'X-Updated-At': snapshot.updatedAt },
 			});
