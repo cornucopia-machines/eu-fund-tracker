@@ -67,11 +67,10 @@ export async function summarizeLink(
 	url: string,
 	{ fetchImpl = fetch, env, modelOverride, browserPage }: { fetchImpl?: typeof fetch; env: Env; modelOverride?: string; browserPage?: any }
 ) {
+  console.log(`Summarizing ${url}`);
   let html: string;
   if (browserPage) {
-    try {
-      await browserPage.setUserAgent('Mozilla/5.0 (compatible; WorkersScraper/1.0)');
-    } catch {}
+    await browserPage.setUserAgent('Mozilla/5.0 (compatible; WorkersScraper/1.0)');
     await browserPage.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
     html = await browserPage.content();
   } else {
@@ -82,7 +81,6 @@ export async function summarizeLink(
   const markdown = htmlToMarkdown(html);
 
   // Attempt Workers AI summarization if binding present.
-  console.log(`Summarizing ${url}`);
   if (env?.AI) {
     const model = modelOverride || env.SUMMARY_MODEL || '@cf/meta/llama-3.1-8b-instruct';
     const snippet = markdown.slice(0, 5000);
@@ -125,16 +123,17 @@ export async function enrichWithSummaries(items: Opportunity[], env: Env, opts: 
 		if (item.summary) continue;
 		const url = target ? new URL(item.link, target).toString() : item.link;
 		if (!force && kv) {
-			try {
-				const cached = await kv.get(url);
-				if (cached) {
-					console.log(`Using cached summary for ${url}`);
-					item.summary = cached;
-					continue;
-				}
-			} catch {}
+      const cached = await kv.get(url);
+      if (cached) {
+        console.log(`Using cached summary for ${url}`);
+        item.summary = cached;
+        continue;
+      }
 		}
-		if (newCount >= limit) continue;
+		if (newCount >= limit) {
+      console.log(`New summary limit of ${limit} reached, skipping further summaries`);
+      continue;
+    }
 		const summary = await summarizeLink(url, { env, modelOverride: model, browserPage });
 		if (summary) {
 			item.summary = summary;
@@ -144,7 +143,9 @@ export async function enrichWithSummaries(items: Opportunity[], env: Env, opts: 
 				} catch {}
 			}
 			newCount++;
-		}
+		} else {
+      console.error(`Failed to generate summary for ${url}`);
+    }
 	}
 	return items;
 }
