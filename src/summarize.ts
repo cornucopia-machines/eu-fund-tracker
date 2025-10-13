@@ -138,9 +138,7 @@ export async function enrichWithSummaries(items: Opportunity[], env: Env, opts: 
 		if (summary) {
 			item.summary = summary;
 			if (kv) {
-				try {
-					await kv.put(url, summary, { expirationTtl: Duration.fromObject({ weeks: 2 }).as('seconds') });
-				} catch {}
+        await kv.put(url, summary, { expirationTtl: Duration.fromObject({ weeks: 2 }).as('seconds') });
 			}
 			newCount++;
 		} else {
