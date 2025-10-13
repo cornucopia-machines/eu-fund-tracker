@@ -89,12 +89,12 @@ export function parseOpportunities(html: string): Opportunity[] {
 
 		// Additional fallbacks for identifier if relaxed pattern gave us something too generic or null.
 		if (!identifier || /Opening date:/i.test(identifier)) {
-      // Try to extract a strong code pattern inside text (many hyphens & digits)
+			// Try to extract a strong code pattern inside text (many hyphens & digits)
 			const strongCode = text.match(/([A-Z0-9]{2,}(?:-[A-Z0-9]{2,}){2,}(?:-[A-Z0-9][A-Z0-9-]{1,})?)/);
 			if (strongCode) identifier = strongCode[1];
 		}
 		if (!identifier) {
-      // Fallback: numeric id from competitive-calls-cs/{id}
+			// Fallback: numeric id from competitive-calls-cs/{id}
 			const numericId = link.match(/competitive-calls-cs\/(\d+)/i)?.[1];
 			if (numericId) identifier = numericId;
 		}
@@ -104,7 +104,7 @@ export function parseOpportunities(html: string): Opportunity[] {
 				.trim()
 				.split(/\s{2,}/)[0]
 				.trim();
-      // As a last resort use the first word(s) before a pipe if present
+			// As a last resort use the first word(s) before a pipe if present
 			if (firstSegment && firstSegment.length < 60) identifier = firstSegment;
 		}
 
