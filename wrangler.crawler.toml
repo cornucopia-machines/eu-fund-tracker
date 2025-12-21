@@ -1,5 +1,5 @@
-name = "eu-fund-tracker"
-main = "src/index.ts"
+name = "eu-fund-tracker-crawler"
+main = "src/workers/crawler.ts"
 compatibility_date = "2023-03-14"
 compatibility_flags = ["nodejs_compat"]
 
@@ -14,8 +14,8 @@ binding = "SUMMARIES"
 id = "36f31f2cacf14962a24cb0acb8f19778"
 preview_id = "4023508fc658423dbd38b1acc23d0e38"
 
-[ai]
-binding = "AI"
-
 [triggers]
-crons = ["0 */2 * * *"]
+crons = ["*/30 * * * *"]  # Every 30 minutes
+
+[vars]
+CRAWLER_BATCH_SIZE = "50"

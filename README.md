@@ -1,3 +1,3 @@
-This is deployed via CloudFlare to https://eu-fund-tracker.lorant-pinter.workers.dev/.
+This is deployed via CloudFlare Workers to https://eu-fund-tracker.lorant-pinter.workers.dev/.
 
-It is monitored via https://my.monitorss.xyz/feeds/68d59b1dc279d905bbc641d3 and turned into Discord messages.
+It scrapes EU funding opportunities from the EU Funding & Tenders Portal and posts new opportunities directly to Discord via webhook using a queue-based architecture with three independent modules (Crawler, Summarizer, Notifier).

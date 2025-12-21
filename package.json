@@ -1,24 +1,28 @@
 {
-	"name": "browser-worker",
-	"version": "0.0.0",
-	"private": true,
-	"scripts": {
-		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
-		"start": "wrangler dev",
-		"test": "vitest",
-		"cf-typegen": "wrangler types"
-	},
-	"devDependencies": {
-		"@cloudflare/puppeteer": "^1.0.4",
-		"@cloudflare/vitest-pool-workers": "^0.9.10",
-		"linkedom": "^0.18.12",
-		"typescript": "^5.9.3",
-		"vitest": "~3.2.4",
-		"wrangler": "^4.42.0"
-	},
-	"dependencies": {
-		"@types/luxon": "^3.7.1",
-		"luxon": "^3.7.2"
-	}
+  "name": "browser-worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "npm run deploy:crawler && npm run deploy:processor",
+    "deploy:crawler": "wrangler deploy --config wrangler.crawler.toml",
+    "deploy:processor": "wrangler deploy --config wrangler.processor.toml",
+    "dev:crawler": "wrangler dev --config wrangler.crawler.toml",
+    "dev:processor": "wrangler dev --config wrangler.processor.toml",
+    "dev": "npm run dev:crawler",
+    "start": "npm run dev",
+    "test": "vitest",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/puppeteer": "^1.0.4",
+    "@cloudflare/vitest-pool-workers": "^0.11.1",
+    "linkedom": "^0.18.12",
+    "typescript": "^5.9.3",
+    "vitest": "~3.2.4",
+    "wrangler": "^4.56.0"
+  },
+  "dependencies": {
+    "@types/luxon": "^3.7.1",
+    "luxon": "^3.7.2"
+  }
 }

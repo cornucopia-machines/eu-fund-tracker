@@ -1,0 +1,28 @@
+name = "eu-fund-tracker-processor"
+main = "src/workers/processor.ts"
+compatibility_date = "2023-03-14"
+compatibility_flags = ["nodejs_compat"]
+
+[observability.logs]
+enabled = true
+
+[browser]
+binding = "BROWSER"
+
+[[kv_namespaces]]
+binding = "SUMMARIES"
+id = "36f31f2cacf14962a24cb0acb8f19778"
+preview_id = "4023508fc658423dbd38b1acc23d0e38"
+
+[ai]
+binding = "AI"
+
+[triggers]
+crons = ["*/15 * * * *"]  # Every 15 minutes - summarizes and notifies each entry
+
+[vars]
+SUMMARIZER_BATCH_SIZE = "5"
+MAX_SUMMARIZE_ATTEMPTS = "3"
+
+# IMPORTANT: Set DISCORD_WEBHOOK_URL as a secret using:
+# wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.processor.toml
