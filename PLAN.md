@@ -10,7 +10,9 @@ Refactor from pull-based RSS to push-based Discord notifications using a three-m
 
 ## Architecture Decisions
 
-- **Workers**: Split into 3 separate Cloudflare Workers (not a single worker with routing)
+- **Workers**: Split into 2 separate Cloudflare Workers
+  - **Crawler**: Discovers opportunities (runs every 2 hours)
+  - **Processor**: Summarizes + Notifies (runs every 15 minutes, sequential execution)
 - **Queue mechanism**: KV + polling pattern (no native Queue binding)
 - **RSS feed**: Remove completely
 - **Discord webhook**: Environment variable `DISCORD_WEBHOOK_URL`
@@ -207,7 +209,7 @@ Rate limiting:
 
 ## Deployment
 
-The system is split into **3 separate workers**, each with its own wrangler config:
+The system is split into **2 separate workers**, each with its own wrangler config:
 
 ### Deploy All Workers
 
@@ -219,22 +221,20 @@ npm run deploy
 
 ```bash
 npm run deploy:crawler      # Crawler worker
-npm run deploy:summarizer   # Summarizer worker
-npm run deploy:notifier     # Notifier worker
+npm run deploy:processor    # Processor worker (summarizer + notifier)
 ```
 
 ### Set Discord Webhook Secret
 
 ```bash
-wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.notifier.toml
+wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.processor.toml
 ```
 
 ### Development
 
 ```bash
 npm run dev:crawler         # Dev mode for crawler
-npm run dev:summarizer      # Dev mode for summarizer
-npm run dev:notifier        # Dev mode for notifier
+npm run dev:processor       # Dev mode for processor
 ```
 
 ## Environment Variables
@@ -242,8 +242,7 @@ npm run dev:notifier        # Dev mode for notifier
 Each worker has its own configuration in separate wrangler.\*.toml files:
 
 - **wrangler.crawler.toml**: `CRAWLER_BATCH_SIZE`
-- **wrangler.summarizer.toml**: `SUMMARIZER_BATCH_SIZE`, `MAX_SUMMARIZE_ATTEMPTS`
-- **wrangler.notifier.toml**: `NOTIFIER_BATCH_SIZE`, `MAX_NOTIFY_ATTEMPTS`, `DISCORD_WEBHOOK_URL` (secret)
+- **wrangler.processor.toml**: `SUMMARIZER_BATCH_SIZE`, `MAX_SUMMARIZE_ATTEMPTS`, `NOTIFIER_BATCH_SIZE`, `MAX_NOTIFY_ATTEMPTS`, `DISCORD_WEBHOOK_URL` (secret)
 
 ## Error Handling
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Cloudflare Worker that scrapes EU funding opportunities from the EU Funding & Tenders Portal and posts them to Discord via webhooks. It uses a queue-based architecture with three modules (Crawler, Summarizer, Notifier) that run on separate cron schedules. The worker is deployed to https://eu-fund-tracker.lorant-pinter.workers.dev/.
+This is a Cloudflare Worker system that scrapes EU funding opportunities from the EU Funding & Tenders Portal and posts them to Discord via webhooks. It uses a queue-based architecture with 2 workers: Crawler (discovers opportunities every 2 hours) and Processor (summarizes and notifies every 15 minutes). The workers are deployed to https://eu-fund-tracker.lorant-pinter.workers.dev/.
 
 ## Development Commands
 
@@ -17,13 +17,11 @@ npm run deploy
 
 # Deploy individual workers
 npm run deploy:crawler
-npm run deploy:summarizer
-npm run deploy:notifier
+npm run deploy:processor
 
 # Run workers locally in dev mode
 npm run dev:crawler
-npm run dev:summarizer
-npm run dev:notifier
+npm run dev:processor
 
 # Generate TypeScript types from wrangler.toml bindings
 npm run cf-typegen
@@ -42,15 +40,15 @@ npx vitest
 ### Setting Secrets
 
 ```bash
-# Discord webhook URL (required for notifier worker)
-wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.notifier.toml
+# Discord webhook URL (required for processor worker)
+wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.processor.toml
 ```
 
 ## Architecture
 
-### Three-Worker System
+### Two-Worker System
 
-The system is split into **3 separate Cloudflare Workers** (not a single worker), each with its own wrangler configuration and cron schedule. Workers communicate via KV-based queues:
+The system is split into **2 separate Cloudflare Workers**, each with its own wrangler configuration and cron schedule. Workers communicate via KV-based queues:
 
 1. **Crawler Module** (runs every 2 hours):
 
@@ -60,20 +58,9 @@ The system is split into **3 separate Cloudflare Workers** (not a single worker)
    - Enqueues new opportunities to summarization queue
    - Marks URLs as seen to prevent reprocessing
 
-2. **Summarizer Module** (runs every 15 minutes):
-
-   - Polls summarization queue for pending jobs (batch: 5)
-   - Claims jobs using processing locks to prevent concurrent processing
-   - Generates AI summaries via Workers AI (reuses summary cache)
-   - Enqueues completed summaries to notification queue
-   - Implements retry logic with exponential backoff (max 3 attempts)
-
-3. **Notifier Module** (runs every 5 minutes):
-   - Polls notification queue for completed summaries (batch: 10)
-   - Claims jobs using processing locks
-   - Posts rich Discord embeds to webhook
-   - Handles rate limiting (429 responses) with retry
-   - Implements retry logic with max 5 attempts
+2. **Processor Module** (runs every 15 minutes, executes summarizer then notifier sequentially):
+   - **Summarizer**: Polls summarization queue for pending jobs (batch: 5), claims jobs using processing locks, generates AI summaries via Workers AI (reuses summary cache), enqueues completed summaries to notification queue, implements retry logic (max 3 attempts)
+   - **Notifier**: Polls notification queue for completed summaries (batch: 10), claims jobs using processing locks, posts rich Discord embeds to webhook, handles rate limiting (429 responses) with retry, implements retry logic (max 5 attempts)
 
 ### HTTP Endpoint
 
@@ -84,8 +71,7 @@ The `fetch()` handler now returns a simple health check JSON response instead of
 **Workers** (`src/workers/`):
 
 - `crawler.ts` - Entry point for crawler worker (wrangler.crawler.toml)
-- `summarizer.ts` - Entry point for summarizer worker (wrangler.summarizer.toml)
-- `notifier.ts` - Entry point for notifier worker (wrangler.notifier.toml)
+- `processor.ts` - Entry point for processor worker that runs both summarizer and notifier (wrangler.processor.toml)
 
 **Modules** (`src/modules/`):
 
@@ -115,18 +101,13 @@ Each worker has its own wrangler.\*.toml configuration:
 - **SUMMARIES**: KV namespace
 - **CRAWLER_BATCH_SIZE**: Batch size env var
 
-**wrangler.summarizer.toml**:
+**wrangler.processor.toml**:
 
 - **BROWSER**: Puppeteer browser instance
 - **SUMMARIES**: KV namespace
 - **AI**: Workers AI binding
-- **SUMMARIZER_BATCH_SIZE**, **MAX_SUMMARIZE_ATTEMPTS**: Env vars
-
-**wrangler.notifier.toml**:
-
-- **SUMMARIES**: KV namespace
-- **DISCORD_WEBHOOK_URL**: Secret (set via `wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.notifier.toml`)
-- **NOTIFIER_BATCH_SIZE**, **MAX_NOTIFY_ATTEMPTS**: Env vars
+- **DISCORD_WEBHOOK_URL**: Secret (set via `wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.processor.toml`)
+- **SUMMARIZER_BATCH_SIZE**, **MAX_SUMMARIZE_ATTEMPTS**, **NOTIFIER_BATCH_SIZE**, **MAX_NOTIFY_ATTEMPTS**: Env vars
 
 ### Test Setup
 
