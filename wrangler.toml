@@ -18,4 +18,17 @@ preview_id = "4023508fc658423dbd38b1acc23d0e38"
 binding = "AI"
 
 [triggers]
-crons = ["0 */2 * * *"]
+crons = [
+  "0 */2 * * *",    # Crawler: Every 2 hours
+  "*/15 * * * *",   # Summarizer: Every 15 minutes
+  "*/5 * * * *"     # Notifier: Every 5 minutes
+]
+
+[vars]
+CRAWLER_BATCH_SIZE = "50"
+SUMMARIZER_BATCH_SIZE = "5"
+NOTIFIER_BATCH_SIZE = "10"
+MAX_SUMMARIZE_ATTEMPTS = "3"
+MAX_NOTIFY_ATTEMPTS = "5"
+
+# DISCORD_WEBHOOK_URL as a secret is needed for notifications

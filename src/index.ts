@@ -1,112 +1,50 @@
-import { Duration } from 'luxon';
-import { parseOpportunities, itemsToRssXml } from './parsePage';
-import { enrichWithSummaries } from './summarize';
-import type { Env, Opportunity } from './types';
+import { handleCrawlerCron } from './modules/crawler';
+import { handleSummarizerCron } from './modules/summarizer';
+import { handleNotifierCron } from './modules/notifier';
+import type { Env } from './types';
 
-// Key for storing latest snapshot JSON
-const SNAPSHOT_KEY = 'snapshot:items:v1';
-const DEFAULT_FEED_URL = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/calls-for-proposals?isExactMatch=true&status=31094501,31094502&order=DESC&pageNumber=1&pageSize=9999&sortBy=startDate`;
-
-async function fetchListingHtml(
-	target: string,
-	useBrowser: boolean,
-	env: Env
-): Promise<{ html: string; page?: any; browser?: any; mode: string }> {
-  console.log(`Fetching listing HTML from ${target} using ${useBrowser ? 'browser' : 'fetch'}`);
-	if (!useBrowser) {
-		const res = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WorkersScraper/1.0)' } });
-		if (!res.ok) throw new Error('Upstream fetch failed: ' + res.status);
-		return { html: await res.text(), mode: 'no-browser' };
-	}
-	const puppeteer: any = await import('@cloudflare/puppeteer');
-	const browser = await puppeteer.launch(env.BROWSER);
-	const page = await browser.newPage();
-	await page.setUserAgent('Mozilla/5.0 (compatible; WorkersScraper/1.0)');
-	await page.goto(target, { waitUntil: 'networkidle0', timeout: 120000 });
-	const html = await page.content();
-	return { html, page, browser, mode: 'browser' };
-}
-
-async function buildAndStoreSnapshot(target: string, env: Env, options: { limit?: number } = {}) {
-  const { limit } = options;
-	const { html, page, browser } = await fetchListingHtml(target, !!env.BROWSER, env);
-	try {
-		let items = parseOpportunities(html);
-		items = await enrichWithSummaries(items, env, { force: false, browserPage: page, model: env.SUMMARY_MODEL, limit, target });
-		const snapshot = { updatedAt: new Date().toISOString(), target, count: items.length, items };
-		if (!env.SUMMARIES) {
-			throw new Error('No SUMMARIES KV namespace binding');
-		}
-		await env.SUMMARIES.put(SNAPSHOT_KEY, JSON.stringify(snapshot), {
-			expirationTtl: Duration.fromObject({ days: 1 }).as('seconds'),
-		});
-		return snapshot;
-	} finally {
-		try {
-			await browser?.close();
-		} catch {}
-	}
-}
-
+/**
+ * Main worker entry point.
+ * Routes scheduled cron events to appropriate modules.
+ */
 export default {
-	async fetch(req: Request, env: Env): Promise<Response> {
-		const feedUrl = new URL(req.url);
+	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+		const cron = controller.cron;
+		console.log(`Scheduled event triggered: ${cron}`);
 
-    if (feedUrl.pathname !== '/') {
-      return new Response('Not found', { status: 404 });
-    }
+		try {
+			// Route to appropriate module based on cron schedule
+			// Crawler: "0 */2 * * *" (every 2 hours)
+			// Summarizer: "*/15 * * * *" (every 15 minutes)
+			// Notifier: "*/5 * * * *" (every 5 minutes)
 
-		const target = feedUrl.searchParams.get('url') || DEFAULT_FEED_URL;
-
-		console.log('Fetching feed for target', target);
-
-		// Direct injected HTML test path
-		const directHtml = feedUrl.searchParams.get('html');
-		if (directHtml) {
-			try {
-				const html = decodeURIComponent(directHtml);
-				let items = parseOpportunities(html);
-				const xml = itemsToRssXml(items, feedUrl.toString(), target).xml;
-				return new Response(xml, { headers: { 'Content-Type': 'application/rss+xml; charset=utf-8', 'X-Mode': 'direct-html' } });
-			} catch (e: any) {
-				return new Response('Bad html parameter: ' + (e?.message || e), { status: 400 });
+			if (cron === '0 */2 * * *') {
+				await handleCrawlerCron(env);
+			} else if (cron === '*/15 * * * *') {
+				await handleSummarizerCron(env);
+			} else if (cron === '*/5 * * * *') {
+				await handleNotifierCron(env);
+			} else {
+				console.warn(`Unknown cron schedule: ${cron}`);
 			}
+		} catch (error: any) {
+			console.error('Scheduled event failed:', error?.message || error);
+			// Don't throw - let Worker complete and retry on next cron
 		}
-
-		// Fast path: if snapshot exists and not forced refresh, serve from KV
-		if (!env.SUMMARIES) {
-			throw new Error('No SUMMARIES KV namespace binding');
-		}
-
-    if (feedUrl.searchParams.get('regenerate') === '1') {
-      console.log('Regeneration requested, rebuilding snapshot');
-      try {
-        const limit = feedUrl.searchParams.get('limit') ? parseInt(feedUrl.searchParams.get('limit')!) : undefined;
-        await buildAndStoreSnapshot(target, env, { limit });
-      } catch (e: any) {
-        return new Response('Regeneration error: ' + (e?.message || e), { status: 500 });
-      }
-    }
-
-		const rawSnapshot = await env.SUMMARIES.get(SNAPSHOT_KEY);
-		if (rawSnapshot) {
-			const snapshot = JSON.parse(rawSnapshot) as { items: Opportunity[]; updatedAt: string; target: string };
-			const { xml } = itemsToRssXml(snapshot.items, feedUrl.toString(), target);
-			return new Response(xml, {
-				headers: { 'Content-Type': 'application/rss+xml; charset=utf-8', 'X-Mode': 'snapshot', 'X-Updated-At': snapshot.updatedAt },
-			});
-		}
-
-		throw new Error("Summaries haven't been generated yet");
 	},
 
-	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-		try {
-      console.log('Scheduled snapshot build starting');
-			await buildAndStoreSnapshot(DEFAULT_FEED_URL, env);
-			console.log('Snapshot updated');
-		} catch (e: any) {
-			console.error('Snapshot build failed', e?.message || e);
-		}
+	async fetch(req: Request, env: Env): Promise<Response> {
+		// Health check endpoint
+		return new Response(
+			JSON.stringify({
+				status: 'ok',
+				service: 'EU Fund Tracker',
+				mode: 'Discord Push Notifications',
+				timestamp: new Date().toISOString(),
+			}),
+			{
+				headers: { 'Content-Type': 'application/json' },
+			}
+		);
 	},
 };
