@@ -15,7 +15,7 @@ id = "36f31f2cacf14962a24cb0acb8f19778"
 preview_id = "4023508fc658423dbd38b1acc23d0e38"
 
 [triggers]
-crons = ["0 */2 * * *"]  # Every 2 hours
+crons = ["*/30 * * * *"]  # Every 30 minutes
 
 [vars]
 CRAWLER_BATCH_SIZE = "50"
