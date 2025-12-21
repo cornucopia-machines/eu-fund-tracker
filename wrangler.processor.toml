@@ -18,13 +18,11 @@ preview_id = "4023508fc658423dbd38b1acc23d0e38"
 binding = "AI"
 
 [triggers]
-crons = ["*/15 * * * *"]  # Every 15 minutes - runs both summarizer and notifier
+crons = ["*/15 * * * *"]  # Every 15 minutes - summarizes and notifies each entry
 
 [vars]
 SUMMARIZER_BATCH_SIZE = "5"
 MAX_SUMMARIZE_ATTEMPTS = "3"
-NOTIFIER_BATCH_SIZE = "10"
-MAX_NOTIFY_ATTEMPTS = "5"
 
 # IMPORTANT: Set DISCORD_WEBHOOK_URL as a secret using:
 # wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.processor.toml
