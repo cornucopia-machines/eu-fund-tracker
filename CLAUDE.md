@@ -12,13 +12,18 @@ This is a Cloudflare Worker that scrapes EU funding opportunities from the EU Fu
 # Run tests (uses Vitest with Cloudflare Workers pool)
 npm test
 
-# Run worker locally in dev mode
-npm run dev
-# or
-npm start
-
-# Deploy to Cloudflare Workers
+# Deploy all workers
 npm run deploy
+
+# Deploy individual workers
+npm run deploy:crawler
+npm run deploy:summarizer
+npm run deploy:notifier
+
+# Run workers locally in dev mode
+npm run dev:crawler
+npm run dev:summarizer
+npm run dev:notifier
 
 # Generate TypeScript types from wrangler.toml bindings
 npm run cf-typegen
@@ -34,11 +39,18 @@ npx vitest run test/parsePage.spec.ts
 npx vitest
 ```
 
+### Setting Secrets
+
+```bash
+# Discord webhook URL (required for notifier worker)
+wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.notifier.toml
+```
+
 ## Architecture
 
-### Three-Module Queue System
+### Three-Worker System
 
-The system uses three independent modules that communicate via KV-based queues:
+The system is split into **3 separate Cloudflare Workers** (not a single worker), each with its own wrangler configuration and cron schedule. Workers communicate via KV-based queues:
 
 1. **Crawler Module** (runs every 2 hours):
 
@@ -69,6 +81,12 @@ The `fetch()` handler now returns a simple health check JSON response instead of
 
 ### Key Components
 
+**Workers** (`src/workers/`):
+
+- `crawler.ts` - Entry point for crawler worker (wrangler.crawler.toml)
+- `summarizer.ts` - Entry point for summarizer worker (wrangler.summarizer.toml)
+- `notifier.ts` - Entry point for notifier worker (wrangler.notifier.toml)
+
 **Modules** (`src/modules/`):
 
 - `crawler.ts` - Discovers new opportunities and queues them
@@ -85,22 +103,30 @@ The `fetch()` handler now returns a simple health check JSON response instead of
 
 - `src/parsePage.ts` - Extracts opportunity cards from portal HTML using linkedom
 - `src/summarize.ts` - AI summarization via Workers AI with custom prompt
-- `src/index.ts` - Main entry point that routes cron events to modules
 - `src/types.ts` - TypeScript interfaces
 
 ### Cloudflare Bindings & Environment
 
-Configured in `wrangler.toml`:
+Each worker has its own wrangler.\*.toml configuration:
 
-- **BROWSER**: Puppeteer browser instance for headless Chrome rendering
-- **SUMMARIES**: KV namespace for queues, seen tracking, and summary caching
-- **AI**: Workers AI binding for LLM-based summarization
-- **DISCORD_WEBHOOK_URL**: Secret containing Discord webhook URL (set via `wrangler secret put`)
+**wrangler.crawler.toml**:
 
-Environment variables:
+- **BROWSER**: Puppeteer browser instance
+- **SUMMARIES**: KV namespace
+- **CRAWLER_BATCH_SIZE**: Batch size env var
 
-- `CRAWLER_BATCH_SIZE`, `SUMMARIZER_BATCH_SIZE`, `NOTIFIER_BATCH_SIZE`: Control batch sizes
-- `MAX_SUMMARIZE_ATTEMPTS`, `MAX_NOTIFY_ATTEMPTS`: Retry limits before moving to DLQ
+**wrangler.summarizer.toml**:
+
+- **BROWSER**: Puppeteer browser instance
+- **SUMMARIES**: KV namespace
+- **AI**: Workers AI binding
+- **SUMMARIZER_BATCH_SIZE**, **MAX_SUMMARIZE_ATTEMPTS**: Env vars
+
+**wrangler.notifier.toml**:
+
+- **SUMMARIES**: KV namespace
+- **DISCORD_WEBHOOK_URL**: Secret (set via `wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.notifier.toml`)
+- **NOTIFIER_BATCH_SIZE**, **MAX_NOTIFY_ATTEMPTS**: Env vars
 
 ### Test Setup
 

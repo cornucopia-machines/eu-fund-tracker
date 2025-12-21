@@ -1,24 +1,30 @@
 {
-	"name": "browser-worker",
-	"version": "0.0.0",
-	"private": true,
-	"scripts": {
-		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
-		"start": "wrangler dev",
-		"test": "vitest",
-		"cf-typegen": "wrangler types"
-	},
-	"devDependencies": {
-		"@cloudflare/puppeteer": "^1.0.4",
-		"@cloudflare/vitest-pool-workers": "^0.9.10",
-		"linkedom": "^0.18.12",
-		"typescript": "^5.9.3",
-		"vitest": "~3.2.4",
-		"wrangler": "^4.42.0"
-	},
-	"dependencies": {
-		"@types/luxon": "^3.7.1",
-		"luxon": "^3.7.2"
-	}
+  "name": "browser-worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "npm run deploy:crawler && npm run deploy:summarizer && npm run deploy:notifier",
+    "deploy:crawler": "wrangler deploy --config wrangler.crawler.toml",
+    "deploy:summarizer": "wrangler deploy --config wrangler.summarizer.toml",
+    "deploy:notifier": "wrangler deploy --config wrangler.notifier.toml",
+    "dev:crawler": "wrangler dev --config wrangler.crawler.toml",
+    "dev:summarizer": "wrangler dev --config wrangler.summarizer.toml",
+    "dev:notifier": "wrangler dev --config wrangler.notifier.toml",
+    "dev": "npm run dev:crawler",
+    "start": "npm run dev",
+    "test": "vitest",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/puppeteer": "^1.0.4",
+    "@cloudflare/vitest-pool-workers": "^0.9.10",
+    "linkedom": "^0.18.12",
+    "typescript": "^5.9.3",
+    "vitest": "~3.2.4",
+    "wrangler": "^4.42.0"
+  },
+  "dependencies": {
+    "@types/luxon": "^3.7.1",
+    "luxon": "^3.7.2"
+  }
 }

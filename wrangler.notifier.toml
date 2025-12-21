@@ -1,0 +1,22 @@
+name = "eu-fund-tracker-notifier"
+main = "src/workers/notifier.ts"
+compatibility_date = "2023-03-14"
+compatibility_flags = ["nodejs_compat"]
+
+[observability.logs]
+enabled = true
+
+[[kv_namespaces]]
+binding = "SUMMARIES"
+id = "36f31f2cacf14962a24cb0acb8f19778"
+preview_id = "4023508fc658423dbd38b1acc23d0e38"
+
+[triggers]
+crons = ["*/5 * * * *"]  # Every 5 minutes
+
+[vars]
+NOTIFIER_BATCH_SIZE = "10"
+MAX_NOTIFY_ATTEMPTS = "5"
+
+# IMPORTANT: Set DISCORD_WEBHOOK_URL as a secret using:
+# wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.notifier.toml

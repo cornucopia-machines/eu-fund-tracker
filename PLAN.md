@@ -3,12 +3,14 @@
 ## Overview
 
 Refactor from pull-based RSS to push-based Discord notifications using a three-module queue architecture:
+
 1. **Crawler** - Discovers new opportunities, queues for summarization
 2. **Summarizer** - Generates AI summaries, queues for notification
 3. **Notifier** - Posts to Discord webhook
 
 ## Architecture Decisions
 
+- **Workers**: Split into 3 separate Cloudflare Workers (not a single worker with routing)
 - **Queue mechanism**: KV + polling pattern (no native Queue binding)
 - **RSS feed**: Remove completely
 - **Discord webhook**: Environment variable `DISCORD_WEBHOOK_URL`
@@ -35,26 +37,31 @@ src/
 ## KV Schema
 
 ### 1. Seen URLs Tracking
+
 - **Key**: `seen:{urlHash}` (hash of opportunity URL)
 - **Value**: `{url, firstSeen, identifier, title}`
 - **TTL**: 90 days
 
 ### 2. Summarization Job Queue
+
 - **Key**: `queue:summarize:{timestamp}:{urlHash}`
 - **Value**: `{url, opportunity, enqueued, attempts, lastAttempt?, error?}`
 - **TTL**: 7 days
 
 ### 3. Processing Claims (prevent concurrent processing)
+
 - **Key**: `processing:{urlHash}`
 - **Value**: ISO timestamp
 - **TTL**: 15 minutes (auto-release if worker crashes)
 
 ### 4. Notification Queue
+
 - **Key**: `queue:notify:{timestamp}:{urlHash}`
 - **Value**: `{opportunity, summarized, attempts, lastAttempt?, error?}`
 - **TTL**: 7 days
 
 ### 5. Dead Letter Queue (permanently failed items)
+
 - **Key**: `dlq:summarize:{urlHash}` or `dlq:notify:{urlHash}`
 - **Value**: `{job, failedAt, attempts, lastError, module}`
 - **TTL**: 30 days
@@ -71,6 +78,7 @@ crons = [
 ```
 
 **Rationale**:
+
 - Crawler at 2h: Matches current frequency, EU portal update rate
 - Summarizer at 15min: Balances latency vs AI cost, processes ~5 items/run
 - Notifier at 5min: Fast delivery, cheap operation, ~10 items/run
@@ -78,6 +86,7 @@ crons = [
 ## Module Flows
 
 ### Crawler Module (every 2 hours)
+
 1. Fetch EU portal HTML (Puppeteer or fetch)
 2. Parse opportunities using existing `parseOpportunities()`
 3. For each opportunity:
@@ -87,6 +96,7 @@ crons = [
 4. Log metrics
 
 ### Summarizer Module (every 15 minutes)
+
 1. List pending jobs from `queue:summarize:*` (limit: 5)
 2. For each job:
    - Attempt to claim via `processing:{hash}` (TTL: 15min)
@@ -99,6 +109,7 @@ crons = [
 3. Log metrics
 
 ### Notifier Module (every 5 minutes)
+
 1. List pending jobs from `queue:notify:*` (limit: 10)
 2. For each job:
    - Attempt to claim via `processing:{hash}`
@@ -114,6 +125,7 @@ crons = [
 ## Discord Message Format
 
 Rich embed with:
+
 - **Title**: Opportunity title (linked)
 - **Description**: AI-generated summary
 - **Color**: Status-based (green=Open, blue=Forthcoming, etc.)
@@ -121,6 +133,7 @@ Rich embed with:
 - **Footer**: "EU Fund Tracker • Powered by Cloudflare Workers"
 
 Rate limiting:
+
 - Discord limit: 30 req/min per webhook
 - Our rate: 10 notifications per 5min = 2 req/min (safe)
 - Handle 429 responses with retry_after
@@ -128,7 +141,9 @@ Rate limiting:
 ## Implementation Order
 
 ### Phase 1: Core Infrastructure (files 1-2)
+
 1. **src/shared/dedup.ts** - Simple, no dependencies
+
    - `hashUrl(url: string): string` - MD5 hash
    - `isSeen(kv, url): Promise<boolean>` - Check KV
    - `markSeen(kv, url, metadata): Promise<void>` - Write KV
@@ -142,17 +157,21 @@ Rate limiting:
    - `fail(kv, queueKey, error, maxAttempts): Promise<void>` - Increment or DLQ
 
 ### Phase 2: Discord Integration (file 3)
+
 3. **src/shared/discord.ts** - Discord webhook client
    - `createEmbed(opportunity): DiscordEmbed` - Format message
    - `postToWebhook(webhookUrl, embed): Promise<void>` - POST with error handling
    - Status color mapping
 
 ### Phase 3: Modules (files 4-6)
+
 4. **src/modules/crawler.ts** - First module
+
    - Reuse `fetchListingHtml()` and `parseOpportunities()` from existing code
    - Integrate dedup + queue
 
 5. **src/modules/summarizer.ts** - Second module
+
    - Poll queue, claim jobs
    - Reuse `summarizeLink()` from existing code
    - Retry logic with attempts tracking
@@ -163,11 +182,14 @@ Rate limiting:
    - Rate limit handling
 
 ### Phase 4: Integration (files 7-9)
+
 7. **src/types.ts** - Add new interfaces
+
    - `SeenRecord`, `SummarizeJob`, `NotifyJob`, `DiscordEmbed`
    - Update `Env` with Discord webhook URL
 
 8. **src/index.ts** - Update main entry point
+
    - Route scheduled events to appropriate module
    - Remove RSS fetch handler
    - Add feature flag support (optional)
@@ -178,39 +200,66 @@ Rate limiting:
    - Document DISCORD_WEBHOOK_URL secret
 
 ### Phase 5: Cleanup (file 10)
+
 10. **src/parsePage.ts** - Remove RSS generation
     - Delete `itemsToRssXml()` function
     - Keep `parseOpportunities()` unchanged
 
+## Deployment
+
+The system is split into **3 separate workers**, each with its own wrangler config:
+
+### Deploy All Workers
+
+```bash
+npm run deploy
+```
+
+### Deploy Individual Workers
+
+```bash
+npm run deploy:crawler      # Crawler worker
+npm run deploy:summarizer   # Summarizer worker
+npm run deploy:notifier     # Notifier worker
+```
+
+### Set Discord Webhook Secret
+
+```bash
+wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.notifier.toml
+```
+
+### Development
+
+```bash
+npm run dev:crawler         # Dev mode for crawler
+npm run dev:summarizer      # Dev mode for summarizer
+npm run dev:notifier        # Dev mode for notifier
+```
+
 ## Environment Variables
 
-Add to wrangler.toml:
-```toml
-[vars]
-CRAWLER_BATCH_SIZE = "50"
-SUMMARIZER_BATCH_SIZE = "5"
-NOTIFIER_BATCH_SIZE = "10"
-MAX_SUMMARIZE_ATTEMPTS = "3"
-MAX_NOTIFY_ATTEMPTS = "5"
-```
+Each worker has its own configuration in separate wrangler.\*.toml files:
 
-Secret (set via CLI):
-```bash
-wrangler secret put DISCORD_WEBHOOK_URL
-```
+- **wrangler.crawler.toml**: `CRAWLER_BATCH_SIZE`
+- **wrangler.summarizer.toml**: `SUMMARIZER_BATCH_SIZE`, `MAX_SUMMARIZE_ATTEMPTS`
+- **wrangler.notifier.toml**: `NOTIFIER_BATCH_SIZE`, `MAX_NOTIFY_ATTEMPTS`, `DISCORD_WEBHOOK_URL` (secret)
 
 ## Error Handling
 
 **Retry Strategies**:
+
 - **Summarizer**: Max 3 attempts, then DLQ (failures often permanent - 404, bad data)
 - **Notifier**: Max 5 attempts, then DLQ (failures often transient - rate limit, network)
 
 **Claim Timeout**:
+
 - 15 minute TTL on processing claims
 - Auto-releases if worker crashes
 - Prevents jobs getting stuck
 
 **DLQ Pattern**:
+
 - Store permanently failed items for debugging
 - 30 day TTL for analysis
 - Separate keys for summarizer vs notifier failures
@@ -218,6 +267,7 @@ wrangler secret put DISCORD_WEBHOOK_URL
 ## Testing Strategy
 
 **Manual Testing Flow**:
+
 1. Deploy with test webhook URL
 2. Manually trigger crawler cron
 3. Verify KV has `queue:summarize:*` keys
@@ -228,6 +278,7 @@ wrangler secret put DISCORD_WEBHOOK_URL
 8. Run crawler again, verify dedup works (no duplicate queue entries)
 
 **Unit Tests** (expand existing test suite):
+
 - `test/shared/queue.spec.ts` - Queue operations
 - `test/shared/dedup.spec.ts` - Deduplication logic
 - `test/shared/discord.spec.ts` - Embed formatting
@@ -238,6 +289,7 @@ wrangler secret put DISCORD_WEBHOOK_URL
 ## Migration Plan
 
 **Safe Rollout**:
+
 1. Deploy new code WITHOUT removing RSS
 2. Add new crons alongside existing snapshot cron
 3. Both systems run in parallel for 1 week
@@ -246,6 +298,7 @@ wrangler secret put DISCORD_WEBHOOK_URL
 6. If issues, can revert by disabling new crons
 
 **No Data Migration Needed**:
+
 - Existing summary cache (by URL) is reused
 - No breaking changes to KV structure
 - Start fresh with empty queues
@@ -253,12 +306,14 @@ wrangler secret put DISCORD_WEBHOOK_URL
 ## Monitoring
 
 **Key Metrics**:
+
 - Queue depths: Check `queue:summarize:*` and `queue:notify:*` key counts
 - DLQ size: Alert if > 20 items
 - Processing claims: Should be < 5 typically
 - Success/failure rates in logs
 
 **Warning Signs**:
+
 - Summarize queue > 100 (backlog building)
 - Notify queue > 50 (Discord posting failing)
 - DLQ growing rapidly (systematic failures)
