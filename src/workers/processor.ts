@@ -122,7 +122,7 @@ async function handleProcessorCron(env: Env): Promise<void> {
 				} else {
 					// Other error - handle with retry/DLQ logic
 					failed++;
-					console.error(`[Processor] Error processing ${job.opportunity.identifier}:`, errorMsg);
+					console.error(`[Processor] Error processing ${job.opportunity.identifier}:`, error);
 					await fail(env.SUMMARIES, queueKey, url, errorMsg, maxAttempts, DLQ_SUMMARIZE_PREFIX);
 				}
 			}
