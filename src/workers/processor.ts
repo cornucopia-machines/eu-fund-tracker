@@ -74,7 +74,7 @@ async function handleProcessorCron(env: Env): Promise<void> {
 				let summary = await env.SUMMARIES.get(url);
 
 				if (!summary) {
-					console.log(`[Processor] Generating summary for: ${job.opportunity.identifier || job.opportunity.title}`);
+					console.log(`[Processor] Generating summary for: ${job.opportunity.identifier || job.opportunity.title} at '${url}'`);
 
 					const generatedSummary = await summarizeLink(url, {
 						env,
