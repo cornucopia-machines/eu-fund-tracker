@@ -1,8 +1,12 @@
 import { parseHTML } from 'linkedom';
 import type { Opportunity } from './types';
 
-/** Parse listing HTML into opportunity objects. */
-export function parseOpportunities(html: string): Opportunity[] {
+/**
+ * Parse listing HTML into opportunity objects.
+ * @param html - The HTML content to parse
+ * @param baseUrl - The base URL to resolve relative links against (e.g., 'https://ec.europa.eu')
+ */
+export function parseOpportunities(html: string, baseUrl: string): Opportunity[] {
 	const { document } = parseHTML(html);
 
 	// Collect anchors that point to opportunity detail pages (topic-details or competitive calls etc.)
@@ -14,15 +18,29 @@ export function parseOpportunities(html: string): Opportunity[] {
 	for (const a of rawAnchors) {
 		const title = (a.getAttribute('title')?.trim() || a.textContent?.trim() || '').trim();
 		if (title.length < 6) continue;
-		const href = a.href;
+
+		// Get the href attribute (not a.href which doesn't resolve in linkedom)
+		const relativeHref = a.getAttribute('href');
+		if (!relativeHref) continue;
+
+		// Resolve relative URLs to absolute URLs
+		let href: string;
+		try {
+			const resolvedUrl = new URL(relativeHref, baseUrl);
+			href = resolvedUrl.href;
+		} catch (e) {
+			// If URL resolution fails, skip this link
+			console.warn(`Failed to resolve URL: ${relativeHref} with base ${baseUrl}`);
+			continue;
+		}
+
 		if (!dedup.has(href)) dedup.set(href, { a, title });
 	}
 
 	const STATUS_WORDS = ['Forthcoming', 'Open For Submission', 'Open', 'Closed', 'Cancelled', 'Suspended'];
 	const results: Opportunity[] = [];
 
-	for (const { a, title } of dedup.values()) {
-		const link = a.href;
+	for (const [link, { a, title }] of dedup.entries()) {
 		// Find the most specific card root so we can extract all related metadata spans.
 		const cardRoot =
 			a.closest('eui-card, sedia-result-card, sedia-result-card-calls-for-proposals') || a.closest('[data-item], article, li, div');

@@ -54,7 +54,9 @@ async function handleCrawlerCron(env: Env): Promise<void> {
 	try {
 		// Fetch and parse HTML
 		const { html } = await fetchListingHtml(target, page);
-		const opportunities = parseOpportunities(html);
+		// Extract base URL from target for resolving relative links
+		const baseUrl = new URL(target).origin;
+		const opportunities = parseOpportunities(html, baseUrl);
 
 		console.log(`[Crawler] Parsed ${opportunities.length} opportunities`);
 
