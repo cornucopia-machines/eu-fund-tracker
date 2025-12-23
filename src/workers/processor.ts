@@ -10,12 +10,12 @@ import {
 	DLQ_SUMMARIZE_PREFIX,
 	getJob,
 } from '../shared/queue';
+import { createWorker } from '../shared/worker';
 import type { Env, SummarizeJob } from '../types';
 import { Duration } from 'luxon';
 
 /**
  * Processor worker - handles both summarization and notification.
- * Runs every 15 minutes.
  *
  * Flow:
  * For each opportunity in the queue:
@@ -23,7 +23,7 @@ import { Duration } from 'luxon';
  * 2. Post to Discord immediately
  * 3. Complete the job
  */
-async function handleProcessorCron(env: Env): Promise<void> {
+async function runOnce(env: Env): Promise<void> {
 	console.log('[Processor] Starting processing');
 	const startTime = Date.now();
 
@@ -138,31 +138,13 @@ async function handleProcessorCron(env: Env): Promise<void> {
 	}
 }
 
-export default {
-	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-		console.log('[Processor Worker] Scheduled event triggered');
-
-		try {
-			await handleProcessorCron(env);
-			console.log('[Processor Worker] Completed successfully');
-		} catch (error: any) {
-			console.error('[Processor Worker] Failed:', error?.message || error);
-			// Don't throw - let worker complete and retry on next cron
-		}
+/**
+ * Processor worker - handles both summarization and notification.
+ */
+export default createWorker(
+	{
+		name: 'Processor',
+		description: 'Summarizes opportunities and posts them to Discord',
 	},
-
-	async fetch(req: Request, env: Env): Promise<Response> {
-		return new Response(
-			JSON.stringify({
-				worker: 'processor',
-				status: 'ok',
-				flow: 'Summarize and notify each entry sequentially',
-				schedule: 'Every 15 minutes',
-				timestamp: new Date().toISOString(),
-			}),
-			{
-				headers: { 'Content-Type': 'application/json' },
-			}
-		);
-	},
-};
+	runOnce
+);

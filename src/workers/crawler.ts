@@ -1,6 +1,7 @@
 import { parseOpportunities } from '../parsePage';
 import { isSeen, markSeen } from '../shared/dedup';
 import { enqueue, SUMMARIZE_QUEUE_PREFIX } from '../shared/queue';
+import { createWorker } from '../shared/worker';
 import type { Env, SummarizeJob } from '../types';
 
 const DEFAULT_FEED_URL = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/calls-for-proposals?isExactMatch=true&status=31094501,31094502&order=DESC&pageNumber=1&pageSize=9999&sortBy=startDate`;
@@ -34,9 +35,8 @@ async function createPageWithBrowserIfNeeded(env: Env): Promise<{ page: any; bro
 
 /**
  * Crawler module: Discovers new opportunities and queues them for summarization.
- * Runs on cron schedule (every 2 hours).
  */
-async function handleCrawlerCron(env: Env): Promise<void> {
+async function runOnce(env: Env): Promise<void> {
 	console.log('[Crawler] Starting crawl');
 	const startTime = Date.now();
 
@@ -105,25 +105,11 @@ async function handleCrawlerCron(env: Env): Promise<void> {
 
 /**
  * Crawler worker - discovers new EU funding opportunities.
- * Runs every 2 hours.
  */
-export default {
-	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-		console.log('[Crawler Worker] Scheduled event triggered');
-		await handleCrawlerCron(env);
+export default createWorker(
+	{
+		name: 'Crawler',
+		description: 'Discovers new EU funding opportunities and queues them for summarization',
 	},
-
-	async fetch(req: Request, env: Env): Promise<Response> {
-		return new Response(
-			JSON.stringify({
-				worker: 'crawler',
-				status: 'ok',
-				schedule: 'Every 2 hours',
-				timestamp: new Date().toISOString(),
-			}),
-			{
-				headers: { 'Content-Type': 'application/json' },
-			}
-		);
-	},
-};
+	runOnce
+);
