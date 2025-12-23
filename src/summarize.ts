@@ -83,7 +83,7 @@ export async function summarizeLink(
 
   // Attempt Workers AI summarization if binding present.
   if (env?.AI) {
-    const model = modelOverride || env.SUMMARY_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+    const model = modelOverride || env.SUMMARY_MODEL || '@cf/meta/llama-4-scout-17b-16e-instruct';
     const snippet = markdown.slice(0, 5000);
     const systemPrompt = dedent`
       You are an expert at summarizing EU funding calls for proposals.
