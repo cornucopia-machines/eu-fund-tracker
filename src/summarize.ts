@@ -85,8 +85,9 @@ export async function summarizeLink(
   if (env?.AI) {
     const model = modelOverride || env.SUMMARY_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
     const snippet = markdown.slice(0, 5000);
-    const prompt = dedent`
-      Summarize the following EU funding call description in <= 100 words in a single paragraph.
+    const systemPrompt = dedent`
+      You are an expert at summarizing EU funding calls for proposals.
+      Given the description of a funding call, produce a concise summary highlighting the key points in <= 100 words in a single paragraph.
       Include key points like what the funding is for, who can apply,
       how much can be requested, and any specific requirements.
 
@@ -105,15 +106,19 @@ export async function summarizeLink(
       The score should be relevant to how likely my project is to receive funding from this specific call, not
       a general assessment of EU funding programs.
       State the score and explain your reasoning briefly without describing my project.
+      If the score is above 80, add an emoji 🎯 to indicate a strong match.
 
       Use plain concise English, no intro labels, no marketing fluff, form regular sentences.
       You can use Markdown formatting for emphasis and structure where needed, especially to highlight data points in the text.
+    `;
+    const userPrompt = dedent`
+      Summarize and score the following EU funding opportunity description:
       \n\n"""${snippet}"""
     `;
       const aiResp = await env.AI.run(model, {
         messages: [
-          { role: 'system', content: 'You generate concise neutral summaries of EU funding call descriptions.' },
-          { role: 'user', content: prompt },
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
         ],
       });
       const aiText: string | undefined = aiResp?.response || aiResp?.result || aiResp?.text;
