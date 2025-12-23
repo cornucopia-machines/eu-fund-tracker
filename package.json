@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@types/luxon": "^3.7.1",
+    "dedent": "^1.7.1",
     "luxon": "^3.7.2"
   }
 }

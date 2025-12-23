@@ -1,6 +1,7 @@
 import { parseHTML } from 'linkedom';
 import type { Opportunity, Env, SummarizeOptions } from './types';
 import { Duration } from "luxon";
+import dedent from 'dedent';
 
 /**
  * Heuristic summarizer: returns the first ~40 words of body stripping whitespace.
@@ -84,18 +85,27 @@ export async function summarizeLink(
   if (env?.AI) {
     const model = modelOverride || env.SUMMARY_MODEL || '@cf/meta/llama-3.1-8b-instruct';
     const snippet = markdown.slice(0, 5000);
-    const prompt = `
+    const prompt = dedent`
       Summarize the following EU funding call description in <= 100 words in a single paragraph.
       Include key points like what the funding is for, who can apply,
       how much can be requested, and any specific requirements.
 
-      In a second paragraph give a score between 0-100 for how well the call fits my project,
-      which is a smart IoT irrigation product for home gardeners and small farms that helps users
-      grow their own food without much knowledge of farming. State the score and explain your
-      reasoning briefly without describing my project.
+      In a second paragraph give a score between 0-100 for how well the call fits my project 'GrowMachine':
+
+      '''
+      GrowMachine is a smart IoT irrigation product for home gardeners and small farms that helps users
+      grow their own food without much knowledge of farming.
+      It is published as open source hardware and software under the OCL license.
+      '''
+
+      The score should indicated if the call is related to sustainable agriculture, smart farming, IoT devices,
+      and accepts applications from small businesses or startups that are yet to go to market.
+      It should also indicate if the call is specific to a certain technology that is not relevant to my project
+      (e.g., blockchain, network security, satellite communications, etc.).
+      State the score and explain your reasoning briefly without describing my project.
 
       Use plain concise English, no intro labels, no marketing fluff, form regular sentences.
-      You can use Markdown formatting for emphasis and structure where needed.
+      You can use Markdown formatting for emphasis and structure where needed, especially to highlight data points in the text.
       \n\n"""${snippet}"""
     `;
       const aiResp = await env.AI.run(model, {
