@@ -13,6 +13,7 @@ import {
 import { createWorker } from '../shared/worker';
 import type { Env, SummarizeJob } from '../types';
 import { Duration } from 'luxon';
+import { createPageWithBrowserIfNeeded } from '../shared/browser';
 
 /**
  * Processor worker - handles both summarization and notification.
@@ -42,6 +43,8 @@ async function runOnce(env: Env): Promise<void> {
 	let succeeded = 0;
 	let failed = 0;
 	let skipped = 0;
+
+  const { page, browser } = await createPageWithBrowserIfNeeded(env);
 
 	try {
 		// Get pending jobs from summarization queue
@@ -79,6 +82,7 @@ async function runOnce(env: Env): Promise<void> {
 					const generatedSummary = await summarizeLink(url, {
 						env,
 						modelOverride: env.SUMMARY_MODEL,
+            browserPage: page,
 					});
 
 					if (!generatedSummary) {
@@ -135,7 +139,9 @@ async function runOnce(env: Env): Promise<void> {
 	} catch (error: any) {
 		console.error('[Processor] Processing failed:', error?.message || error);
 		throw error;
-	}
+	} finally {
+    browser?.close();
+  }
 }
 
 /**

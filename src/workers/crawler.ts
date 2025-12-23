@@ -1,4 +1,5 @@
 import { parseOpportunities } from '../parsePage';
+import { createPageWithBrowserIfNeeded } from '../shared/browser';
 import { isSeen, markSeen } from '../shared/dedup';
 import { enqueue, SUMMARIZE_QUEUE_PREFIX } from '../shared/queue';
 import { createWorker } from '../shared/worker';
@@ -22,16 +23,6 @@ async function fetchListingHtml(
 	return { html, mode: 'browser' };
 }
 
-async function createPageWithBrowserIfNeeded(env: Env): Promise<{ page: any; browser: any }> {
-  if (!env.BROWSER) {
-    return { page: null, browser: null };
-  }
-	const puppeteer: any = await import('@cloudflare/puppeteer');
-	const browser = await puppeteer.launch(env.BROWSER);
-	const page = await browser.newPage();
-	await page.setUserAgent('Mozilla/5.0 (compatible; WorkersScraper/1.0)');
-  return { page, browser };
-}
 
 /**
  * Crawler module: Discovers new opportunities and queues them for summarization.
