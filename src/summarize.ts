@@ -83,7 +83,7 @@ export async function summarizeLink(
 
   // Attempt Workers AI summarization if binding present.
   if (env?.AI) {
-    const model = modelOverride || env.SUMMARY_MODEL || '@cf/meta/llama-3.1-8b-instruct';
+    const model = modelOverride || env.SUMMARY_MODEL || '@cf/qwen/qwen3-30b-a3b-fp8';
     const snippet = markdown.slice(0, 5000);
     const prompt = dedent`
       Summarize the following EU funding call description in <= 100 words in a single paragraph.
