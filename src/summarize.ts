@@ -98,10 +98,12 @@ export async function summarizeLink(
       It is published as open source hardware and software under the OCL license.
       '''
 
-      The score should indicated if the call is related to sustainable agriculture, smart farming, IoT devices,
-      and accepts applications from small businesses or startups that are yet to go to market.
-      It should also indicate if the call is specific to a certain technology that is not relevant to my project
-      (e.g., blockchain, network security, satellite communications, etc.).
+      Give a higher score if the call is specifically related to sustainable agriculture, smart farming,
+      IoT devices, and accepts applications from small businesses or startups that are yet to go to market.
+      Give a lower score if the call is specific to a certain technology or area that is not relevant to my project
+      (e.g., blockchain, network security, satellite communications, improving democracy, etc.).
+      The score should be relevant to how likely my project is to receive funding from this specific call, not
+      a general assessment of EU funding programs.
       State the score and explain your reasoning briefly without describing my project.
 
       Use plain concise English, no intro labels, no marketing fluff, form regular sentences.
