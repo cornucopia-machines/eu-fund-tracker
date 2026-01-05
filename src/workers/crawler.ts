@@ -64,7 +64,10 @@ async function runOnce(env: Env): Promise<void> {
 
 		console.log(`[Crawler] Fetched ${allOpportunities.length} total opportunities from ${pageNumber - 1} pages`);
 	} catch (error: any) {
-		console.error('[Crawler] Failed during fetch phase:', error?.message || error);
+		console.error('[Crawler] Failed during fetch phase:', error);
+		if (error?.stack) {
+			console.error('[Crawler] Stack trace:', error.stack);
+		}
 		throw error;
 	} finally {
 		// Close browser as soon as we're done fetching
@@ -132,7 +135,10 @@ async function runOnce(env: Env): Promise<void> {
 		await markSeenBatch(env.SUMMARIES, seenItems);
 		console.log(`[Crawler] Marked ${seenItems.length} opportunities as seen`);
 	} catch (error: any) {
-		console.error('[Crawler] Failed during processing phase:', error?.message || error);
+		console.error('[Crawler] Failed during processing phase:', error);
+		if (error?.stack) {
+			console.error('[Crawler] Stack trace:', error.stack);
+		}
 		throw error;
 	}
 

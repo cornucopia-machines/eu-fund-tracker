@@ -63,6 +63,19 @@ async function runOnce(env: Env): Promise<void> {
 			return;
 		}
 
+		console.log(`[Processor] Retrieved job from queue:`, JSON.stringify(batchJob, null, 2));
+
+		// Validate job structure
+		if (!batchJob.batchId) {
+			console.error(`[Processor] Invalid job structure - missing batchId. Job data:`, batchJob);
+			throw new Error(`Invalid job structure in queue key ${queueKey} - this might be an old-format job. Please clear the queue.`);
+		}
+
+		if (!Array.isArray(batchJob.opportunities)) {
+			console.error(`[Processor] Invalid job structure - opportunities is not an array. Job data:`, batchJob);
+			throw new Error(`Invalid job structure in queue key ${queueKey} - opportunities field is not an array`);
+		}
+
 		console.log(`[Processor] Processing batch ${batchJob.batchId} with ${batchJob.opportunities.length} opportunities`);
 
 		// Try to claim this batch
@@ -157,7 +170,10 @@ async function runOnce(env: Env): Promise<void> {
 			`[Processor] Complete in ${duration}ms - Processed: ${processed}, Succeeded: ${succeeded}, Failed: ${failed}, Skipped: ${skipped}`
 		);
 	} catch (error: any) {
-		console.error('[Processor] Processing failed:', error?.message || error);
+		console.error('[Processor] Processing failed:', error);
+		if (error?.stack) {
+			console.error('[Processor] Stack trace:', error.stack);
+		}
 		throw error;
 	} finally {
 		browser?.close();
