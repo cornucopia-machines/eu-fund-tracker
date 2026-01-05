@@ -8,11 +8,8 @@ import type { Env, SummarizeJob } from '../types';
 const BASE_FEED_URL = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/calls-for-proposals?isExactMatch=true&status=31094501,31094502&order=DESC&sortBy=startDate`;
 const PAGE_SIZE = 100;
 
-async function fetchListingHtml(
-	target: string,
-	page: any,
-): Promise<{ html: string; page?: any; browser?: any; mode: string }> {
-  const useBrowser = !!page;
+async function fetchListingHtml(target: string, page: any): Promise<{ html: string; page?: any; browser?: any; mode: string }> {
+	const useBrowser = !!page;
 	console.log(`Fetching listing HTML from ${target} using ${useBrowser ? 'browser' : 'fetch'}`);
 	if (!useBrowser) {
 		const res = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WorkersScraper/1.0)' } });
@@ -23,7 +20,6 @@ async function fetchListingHtml(
 	const html = await page.content();
 	return { html, mode: 'browser' };
 }
-
 
 /**
  * Crawler module: Discovers new opportunities and queues them for summarization.
@@ -39,14 +35,14 @@ async function runOnce(env: Env): Promise<void> {
 	let discovered = 0;
 	let enqueued = 0;
 	let skipped = 0;
-	let pageNumber = 1;
 
 	const { page, browser } = await createPageWithBrowserIfNeeded(env);
+	const baseUrl = new URL(BASE_FEED_URL).origin;
+	const allOpportunities: any[] = [];
 
 	try {
-		const baseUrl = new URL(BASE_FEED_URL).origin;
-
-		// Loop through pages until we find a page with no opportunities
+		// Phase 1: Fetch and parse all pages (minimize browser usage time)
+		let pageNumber = 1;
 		while (true) {
 			const target = `${BASE_FEED_URL}&pageNumber=${pageNumber}&pageSize=${PAGE_SIZE}`;
 			console.log(`[Crawler] Fetching page ${pageNumber}`);
@@ -55,58 +51,66 @@ async function runOnce(env: Env): Promise<void> {
 			const { html } = await fetchListingHtml(target, page);
 			const opportunities = parseOpportunities(html, baseUrl);
 
-			// If no opportunities found on this page, we're done
+			// If no opportunities found on this page, we're done fetching
 			if (opportunities.length === 0) {
 				console.log(`[Crawler] No opportunities found on page ${pageNumber}, stopping pagination`);
 				break;
 			}
 
 			console.log(`[Crawler] Parsed ${opportunities.length} opportunities from page ${pageNumber}`);
-
-			// Process each opportunity
-			for (const opportunity of opportunities) {
-				discovered++;
-
-				// Check if already seen
-				const seen = await isSeen(env.SUMMARIES, opportunity.link);
-
-				if (seen) {
-					skipped++;
-					continue;
-				}
-
-				// Not seen before - enqueue for summarization
-				const job: SummarizeJob = {
-					url: opportunity.link,
-					opportunity,
-					enqueued: new Date().toISOString(),
-					attempts: 0,
-				};
-
-				await enqueue(env.SUMMARIES, SUMMARIZE_QUEUE_PREFIX, opportunity.link, job);
-
-				// Mark as seen
-				await markSeen(env.SUMMARIES, opportunity.link, {
-					identifier: opportunity.identifier,
-					title: opportunity.title,
-				});
-
-				enqueued++;
-
-				console.log(`[Crawler] Enqueued new opportunity: ${opportunity.identifier || opportunity.title}`);
-			}
-
+			allOpportunities.push(...opportunities);
 			pageNumber++;
 		}
 
-		const duration = Date.now() - startTime;
-		console.log(`[Crawler] Complete in ${duration}ms - Discovered: ${discovered}, Enqueued: ${enqueued}, Skipped: ${skipped}`);
+		console.log(`[Crawler] Fetched ${allOpportunities.length} total opportunities from ${pageNumber - 1} pages`);
 	} catch (error: any) {
-		console.error('[Crawler] Failed:', error?.message || error);
+		console.error('[Crawler] Failed during fetch phase:', error?.message || error);
 		throw error;
 	} finally {
-    await browser?.close();
-  }
+		// Close browser as soon as we're done fetching
+		await browser?.close();
+	}
+
+	// Phase 2: Process all collected opportunities
+	try {
+		for (const opportunity of allOpportunities) {
+			discovered++;
+
+			// Check if already seen
+			const seen = await isSeen(env.SUMMARIES, opportunity.link);
+
+			if (seen) {
+				skipped++;
+				continue;
+			}
+
+			// Not seen before - enqueue for summarization
+			const job: SummarizeJob = {
+				url: opportunity.link,
+				opportunity,
+				enqueued: new Date().toISOString(),
+				attempts: 0,
+			};
+
+			await enqueue(env.SUMMARIES, SUMMARIZE_QUEUE_PREFIX, opportunity.link, job);
+
+			// Mark as seen
+			await markSeen(env.SUMMARIES, opportunity.link, {
+				identifier: opportunity.identifier,
+				title: opportunity.title,
+			});
+
+			enqueued++;
+
+			console.log(`[Crawler] Enqueued new opportunity: ${opportunity.identifier || opportunity.title}`);
+		}
+	} catch (error: any) {
+		console.error('[Crawler] Failed during processing phase:', error?.message || error);
+		throw error;
+	}
+
+	const duration = Date.now() - startTime;
+	console.log(`[Crawler] Complete in ${duration}ms - Discovered: ${discovered}, Enqueued: ${enqueued}, Skipped: ${skipped}`);
 }
 
 /**
