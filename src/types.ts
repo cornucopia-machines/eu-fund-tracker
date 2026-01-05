@@ -29,6 +29,15 @@ export interface SummarizeJob {
   error?: string;
 }
 
+export interface SummarizeBatchJob {
+  batchId: string;
+  opportunities: Opportunity[];
+  enqueued: string;
+  attempts: number;
+  lastAttempt?: string;
+  error?: string;
+}
+
 export interface NotifyJob {
   opportunity: Opportunity;
   summarized: string;

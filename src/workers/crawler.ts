@@ -1,9 +1,9 @@
 import { parseOpportunities } from '../parsePage';
 import { createPageWithBrowserIfNeeded } from '../shared/browser';
-import { isSeen, markSeen } from '../shared/dedup';
+import { filterSeen, markSeenBatch } from '../shared/dedup';
 import { enqueue, SUMMARIZE_QUEUE_PREFIX } from '../shared/queue';
 import { createWorker } from '../shared/worker';
-import type { Env, SummarizeJob } from '../types';
+import type { Env, SummarizeBatchJob, Opportunity } from '../types';
 
 const BASE_FEED_URL = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/calls-for-proposals?isExactMatch=true&status=31094501,31094502&order=DESC&sortBy=startDate`;
 const PAGE_SIZE = 100;
@@ -71,39 +71,66 @@ async function runOnce(env: Env): Promise<void> {
 		await browser?.close();
 	}
 
-	// Phase 2: Process all collected opportunities
+	// Phase 2: Filter out already-seen opportunities (single KV call)
 	try {
-		for (const opportunity of allOpportunities) {
-			discovered++;
+		discovered = allOpportunities.length;
+		console.log(`[Crawler] Checking which of ${discovered} opportunities are new...`);
 
-			// Check if already seen
-			const seen = await isSeen(env.SUMMARIES, opportunity.link);
+		const allUrls = allOpportunities.map((opp) => opp.link);
+		const seenUrls = await filterSeen(env.SUMMARIES, allUrls);
 
-			if (seen) {
-				skipped++;
-				continue;
-			}
+		const newOpportunities = allOpportunities.filter((opp) => !seenUrls.has(opp.link));
+		skipped = discovered - newOpportunities.length;
 
-			// Not seen before - enqueue for summarization
-			const job: SummarizeJob = {
-				url: opportunity.link,
-				opportunity,
-				enqueued: new Date().toISOString(),
+		console.log(`[Crawler] Found ${newOpportunities.length} new opportunities (${skipped} already seen)`);
+
+		if (newOpportunities.length === 0) {
+			const duration = Date.now() - startTime;
+			console.log(`[Crawler] Complete in ${duration}ms - No new opportunities to process`);
+			return;
+		}
+
+		// Phase 3: Batch new opportunities into groups of 10
+    const batchSize = parseInt(env.SUMMARIZER_BATCH_SIZE || '10', 10);
+		const batches: Opportunity[][] = [];
+
+		for (let i = 0; i < newOpportunities.length; i += batchSize) {
+			batches.push(newOpportunities.slice(i, i + batchSize));
+		}
+
+		console.log(`[Crawler] Created ${batches.length} batches of up to ${batchSize} opportunities`);
+
+		// Phase 4: Enqueue batches (one KV write per batch)
+		const timestamp = new Date().toISOString();
+		for (let i = 0; i < batches.length; i++) {
+			const batch = batches[i];
+			const batchId = `batch-${Date.now()}-${i}`;
+
+			const batchJob: SummarizeBatchJob = {
+				batchId,
+				opportunities: batch,
+				enqueued: timestamp,
 				attempts: 0,
 			};
 
-			await enqueue(env.SUMMARIES, SUMMARIZE_QUEUE_PREFIX, opportunity.link, job);
+			// Use first opportunity's URL as the key for the batch
+			await enqueue(env.SUMMARIES, SUMMARIZE_QUEUE_PREFIX, batchId, batchJob);
 
-			// Mark as seen
-			await markSeen(env.SUMMARIES, opportunity.link, {
-				identifier: opportunity.identifier,
-				title: opportunity.title,
-			});
-
-			enqueued++;
-
-			console.log(`[Crawler] Enqueued new opportunity: ${opportunity.identifier || opportunity.title}`);
+			enqueued += batch.length;
+			console.log(`[Crawler] Enqueued batch ${i + 1}/${batches.length} with ${batch.length} opportunities`);
 		}
+
+		// Phase 5: Mark all new opportunities as seen (single KV write)
+		const seenItems = newOpportunities.map((opp) => ({
+			url: opp.link,
+			metadata: {
+				identifier: opp.identifier,
+				title: opp.title,
+			},
+		}));
+
+		await markSeenBatch(env.SUMMARIES, seenItems);
+		console.log(`[Crawler] Marked ${seenItems.length} opportunities as seen`);
 	} catch (error: any) {
 		console.error('[Crawler] Failed during processing phase:', error?.message || error);
 		throw error;

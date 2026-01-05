@@ -11,7 +11,7 @@ import {
 	getJob,
 } from '../shared/queue';
 import { createWorker } from '../shared/worker';
-import type { Env, SummarizeJob } from '../types';
+import type { Env, SummarizeBatchJob } from '../types';
 import { Duration } from 'luxon';
 import { createPageWithBrowserIfNeeded } from '../shared/browser';
 
@@ -19,10 +19,11 @@ import { createPageWithBrowserIfNeeded } from '../shared/browser';
  * Processor worker - handles both summarization and notification.
  *
  * Flow:
- * For each opportunity in the queue:
- * 1. Generate AI summary (or use cached)
- * 2. Post to Discord immediately
- * 3. Complete the job
+ * 1. Pick up a single batch from the queue (contains up to 10 opportunities)
+ * 2. For each opportunity in the batch:
+ *    - Generate AI summary (or use cached)
+ *    - Post to Discord immediately
+ * 3. Complete the batch job
  */
 async function runOnce(env: Env): Promise<void> {
 	console.log('[Processor] Starting processing');
@@ -36,7 +37,6 @@ async function runOnce(env: Env): Promise<void> {
 		throw new Error('No DISCORD_WEBHOOK_URL environment variable');
 	}
 
-	const batchSize = parseInt(env.SUMMARIZER_BATCH_SIZE || '5', 10);
 	const maxAttempts = parseInt(env.MAX_SUMMARIZE_ATTEMPTS || '3', 10);
 
 	let processed = 0;
@@ -44,45 +44,54 @@ async function runOnce(env: Env): Promise<void> {
 	let failed = 0;
 	let skipped = 0;
 
-  const { page, browser } = await createPageWithBrowserIfNeeded(env);
+	const { page, browser } = await createPageWithBrowserIfNeeded(env);
 
 	try {
-		// Get pending jobs from summarization queue
-		const pendingKeys = await listPending(env.SUMMARIES, SUMMARIZE_QUEUE_PREFIX, batchSize);
+		// Get one batch from summarization queue
+		const pendingKeys = await listPending(env.SUMMARIES, SUMMARIZE_QUEUE_PREFIX, 1);
 
-		console.log(`[Processor] Found ${pendingKeys.length} pending jobs (limit: ${batchSize})`);
+		if (pendingKeys.length === 0) {
+			console.log('[Processor] No pending batches in queue');
+			return;
+		}
 
-		for (const queueKey of pendingKeys) {
-			const job = await getJob<SummarizeJob>(env.SUMMARIES, queueKey);
+		const queueKey = pendingKeys[0];
+		const batchJob = await getJob<SummarizeBatchJob>(env.SUMMARIES, queueKey);
 
-			if (!job) {
-				console.warn(`[Processor] Job disappeared: ${queueKey}`);
-				continue;
-			}
+		if (!batchJob) {
+			console.warn(`[Processor] Batch job disappeared: ${queueKey}`);
+			return;
+		}
 
-			const url = job.url;
+		console.log(`[Processor] Processing batch ${batchJob.batchId} with ${batchJob.opportunities.length} opportunities`);
+
+		// Try to claim this batch
+		const claimed = await claim(env.SUMMARIES, batchJob.batchId);
+
+		if (!claimed) {
+			console.log(`[Processor] Batch already claimed: ${batchJob.batchId}`);
+			return;
+		}
+
+		let batchHasError = false;
+		let batchErrorMsg = '';
+
+		// Process each opportunity in the batch
+		for (const opportunity of batchJob.opportunities) {
+			const url = opportunity.link;
 			processed++;
-
-			// Try to claim this job
-			const claimed = await claim(env.SUMMARIES, url);
-
-			if (!claimed) {
-				console.log(`[Processor] Job already claimed: ${job.opportunity.identifier || url}`);
-				skipped++;
-				continue;
-			}
 
 			try {
 				// Step 1: Generate or retrieve cached summary
 				let summary = await env.SUMMARIES.get(url);
 
 				if (!summary) {
-					console.log(`[Processor] Generating summary for: ${job.opportunity.identifier || job.opportunity.title} at '${url}'`);
+					console.log(`[Processor] Generating summary for: ${opportunity.identifier || opportunity.title} at '${url}'`);
 
 					const generatedSummary = await summarizeLink(url, {
 						env,
 						modelOverride: env.SUMMARY_MODEL,
-            browserPage: page,
+						browserPage: page,
 					});
 
 					if (!generatedSummary) {
@@ -96,21 +105,18 @@ async function runOnce(env: Env): Promise<void> {
 						expirationTtl: Duration.fromObject({ weeks: 2 }).as('seconds'),
 					});
 				} else {
-					console.log(`[Processor] Using cached summary for: ${job.opportunity.identifier || job.opportunity.title}`);
+					console.log(`[Processor] Using cached summary for: ${opportunity.identifier || opportunity.title}`);
 				}
 
 				// Add summary to opportunity
-				job.opportunity.summary = summary;
+				opportunity.summary = summary;
 
 				// Step 2: Post to Discord immediately
-				console.log(`[Processor] Posting to Discord: ${job.opportunity.identifier || job.opportunity.title}`);
-				await postOpportunity(env.DISCORD_WEBHOOK_URL, job.opportunity);
-
-				// Step 3: Mark job as complete
-				await complete(env.SUMMARIES, queueKey, url);
+				console.log(`[Processor] Posting to Discord: ${opportunity.identifier || opportunity.title}`);
+				await postOpportunity(env.DISCORD_WEBHOOK_URL, opportunity);
 
 				succeeded++;
-				console.log(`[Processor] Successfully processed: ${job.opportunity.identifier || job.opportunity.title}`);
+				console.log(`[Processor] Successfully processed: ${opportunity.identifier || opportunity.title}`);
 
 				// Small delay to avoid bursting Discord rate limits
 				await new Promise((resolve) => setTimeout(resolve, 200));
@@ -119,17 +125,31 @@ async function runOnce(env: Env): Promise<void> {
 
 				// Check if it's a rate limit error from Discord
 				if (errorMsg.includes('rate limit')) {
-					console.warn(`[Processor] Rate limited, releasing claim for retry: ${job.opportunity.identifier}`);
-					// Release the claim so it can be retried on next run
-					await release(env.SUMMARIES, url);
-					skipped++;
+					console.warn(`[Processor] Rate limited, releasing batch claim for retry: ${opportunity.identifier}`);
+					// Release the claim so the entire batch can be retried on next run
+					await release(env.SUMMARIES, batchJob.batchId);
+					skipped += batchJob.opportunities.length - processed + 1;
+					const duration = Date.now() - startTime;
+					console.log(
+						`[Processor] Complete in ${duration}ms - Processed: ${processed}, Succeeded: ${succeeded}, Failed: ${failed}, Skipped: ${skipped}`
+					);
+					return;
 				} else {
-					// Other error - handle with retry/DLQ logic
+					// Other error - mark batch for retry/DLQ
 					failed++;
-					console.error(`[Processor] Error processing ${job.opportunity.identifier}:`, error);
-					await fail(env.SUMMARIES, queueKey, url, errorMsg, maxAttempts, DLQ_SUMMARIZE_PREFIX);
+					batchHasError = true;
+					batchErrorMsg = errorMsg;
+					console.error(`[Processor] Error processing ${opportunity.identifier}:`, error);
 				}
 			}
+		}
+
+		// Step 3: Complete or fail the batch job
+		if (batchHasError) {
+			await fail(env.SUMMARIES, queueKey, batchJob.batchId, batchErrorMsg, maxAttempts, DLQ_SUMMARIZE_PREFIX);
+		} else {
+			await complete(env.SUMMARIES, queueKey, batchJob.batchId);
+			console.log(`[Processor] Batch ${batchJob.batchId} completed successfully`);
 		}
 
 		const duration = Date.now() - startTime;
@@ -140,8 +160,8 @@ async function runOnce(env: Env): Promise<void> {
 		console.error('[Processor] Processing failed:', error?.message || error);
 		throw error;
 	} finally {
-    browser?.close();
-  }
+		browser?.close();
+	}
 }
 
 /**

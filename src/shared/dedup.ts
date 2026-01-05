@@ -1,6 +1,6 @@
 import { Duration } from 'luxon';
 
-const SEEN_PREFIX = 'seen:';
+const SEEN_KEY = 'seen:all';
 const SEEN_TTL_DAYS = 90;
 
 export interface SeenRecord {
@@ -8,6 +8,10 @@ export interface SeenRecord {
 	firstSeen: string;
 	identifier: string | null;
 	title: string;
+}
+
+export interface SeenDatabase {
+	[urlHash: string]: SeenRecord;
 }
 
 /**
@@ -25,12 +29,47 @@ export function hashUrl(url: string): string {
 }
 
 /**
+ * Load the entire seen database from KV.
+ */
+async function loadSeenDatabase(kv: KVNamespace): Promise<SeenDatabase> {
+	const raw = await kv.get(SEEN_KEY);
+	if (!raw) return {};
+	return JSON.parse(raw) as SeenDatabase;
+}
+
+/**
+ * Save the seen database to KV.
+ */
+async function saveSeenDatabase(kv: KVNamespace, db: SeenDatabase): Promise<void> {
+	await kv.put(SEEN_KEY, JSON.stringify(db), {
+		expirationTtl: Duration.fromObject({ days: SEEN_TTL_DAYS }).as('seconds'),
+	});
+}
+
+/**
  * Check if a URL has been seen before.
  */
 export async function isSeen(kv: KVNamespace, url: string): Promise<boolean> {
-	const key = SEEN_PREFIX + hashUrl(url);
-	const record = await kv.get(key);
-	return record !== null;
+	const db = await loadSeenDatabase(kv);
+	return hashUrl(url) in db;
+}
+
+/**
+ * Check which URLs from a list have been seen before.
+ * Returns a Set of URL hashes that have been seen.
+ */
+export async function filterSeen(kv: KVNamespace, urls: string[]): Promise<Set<string>> {
+	const db = await loadSeenDatabase(kv);
+	const seen = new Set<string>();
+
+	for (const url of urls) {
+		const hash = hashUrl(url);
+		if (hash in db) {
+			seen.add(url);
+		}
+	}
+
+	return seen;
 }
 
 /**
@@ -41,24 +80,47 @@ export async function markSeen(
 	url: string,
 	metadata: { identifier: string | null; title: string }
 ): Promise<void> {
-	const key = SEEN_PREFIX + hashUrl(url);
-	const record: SeenRecord = {
+	const db = await loadSeenDatabase(kv);
+	const urlHash = hashUrl(url);
+
+	db[urlHash] = {
 		url,
 		firstSeen: new Date().toISOString(),
 		identifier: metadata.identifier,
 		title: metadata.title,
 	};
-	await kv.put(key, JSON.stringify(record), {
-		expirationTtl: Duration.fromObject({ days: SEEN_TTL_DAYS }).as('seconds'),
-	});
+
+	await saveSeenDatabase(kv, db);
+}
+
+/**
+ * Mark multiple URLs as seen with metadata (batch operation).
+ */
+export async function markSeenBatch(
+	kv: KVNamespace,
+	items: Array<{ url: string; metadata: { identifier: string | null; title: string } }>
+): Promise<void> {
+	const db = await loadSeenDatabase(kv);
+	const timestamp = new Date().toISOString();
+
+	for (const item of items) {
+		const urlHash = hashUrl(item.url);
+		db[urlHash] = {
+			url: item.url,
+			firstSeen: timestamp,
+			identifier: item.metadata.identifier,
+			title: item.metadata.title,
+		};
+	}
+
+	await saveSeenDatabase(kv, db);
 }
 
 /**
  * Get the seen record for a URL (for debugging/inspection).
  */
 export async function getSeenRecord(kv: KVNamespace, url: string): Promise<SeenRecord | null> {
-	const key = SEEN_PREFIX + hashUrl(url);
-	const raw = await kv.get(key);
-	if (!raw) return null;
-	return JSON.parse(raw) as SeenRecord;
+	const db = await loadSeenDatabase(kv);
+	const urlHash = hashUrl(url);
+	return db[urlHash] || null;
 }
