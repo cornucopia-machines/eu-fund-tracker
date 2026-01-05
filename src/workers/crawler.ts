@@ -5,7 +5,8 @@ import { enqueue, SUMMARIZE_QUEUE_PREFIX } from '../shared/queue';
 import { createWorker } from '../shared/worker';
 import type { Env, SummarizeJob } from '../types';
 
-const DEFAULT_FEED_URL = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/calls-for-proposals?isExactMatch=true&status=31094501,31094502&order=DESC&pageNumber=1&pageSize=9999&sortBy=startDate`;
+const BASE_FEED_URL = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/calls-for-proposals?isExactMatch=true&status=31094501,31094502&order=DESC&sortBy=startDate`;
+const PAGE_SIZE = 100;
 
 async function fetchListingHtml(
 	target: string,
@@ -28,60 +29,74 @@ async function fetchListingHtml(
  * Crawler module: Discovers new opportunities and queues them for summarization.
  */
 async function runOnce(env: Env): Promise<void> {
-	console.log('[Crawler] Starting crawl');
-	const startTime = Date.now();
-
 	if (!env.SUMMARIES) {
 		throw new Error('No SUMMARIES KV namespace binding');
 	}
 
-	const target = DEFAULT_FEED_URL;
+	console.log(`[Crawler] Starting crawl -- ${BASE_FEED_URL}`);
+	const startTime = Date.now();
+
 	let discovered = 0;
 	let enqueued = 0;
 	let skipped = 0;
+	let pageNumber = 1;
 
-  const { page, browser } = await createPageWithBrowserIfNeeded(env);
+	const { page, browser } = await createPageWithBrowserIfNeeded(env);
 
 	try {
-		// Fetch and parse HTML
-		const { html } = await fetchListingHtml(target, page);
-		// Extract base URL from target for resolving relative links
-		const baseUrl = new URL(target).origin;
-		const opportunities = parseOpportunities(html, baseUrl);
+		const baseUrl = new URL(BASE_FEED_URL).origin;
 
-		console.log(`[Crawler] Parsed ${opportunities.length} opportunities`);
+		// Loop through pages until we find a page with no opportunities
+		while (true) {
+			const target = `${BASE_FEED_URL}&pageNumber=${pageNumber}&pageSize=${PAGE_SIZE}`;
+			console.log(`[Crawler] Fetching page ${pageNumber}`);
 
-		// Process each opportunity
-		for (const opportunity of opportunities) {
-			discovered++;
+			// Fetch and parse HTML
+			const { html } = await fetchListingHtml(target, page);
+			const opportunities = parseOpportunities(html, baseUrl);
 
-			// Check if already seen
-			const seen = await isSeen(env.SUMMARIES, opportunity.link);
-
-			if (seen) {
-				skipped++;
-				continue;
+			// If no opportunities found on this page, we're done
+			if (opportunities.length === 0) {
+				console.log(`[Crawler] No opportunities found on page ${pageNumber}, stopping pagination`);
+				break;
 			}
 
-			// Not seen before - enqueue for summarization
-			const job: SummarizeJob = {
-				url: opportunity.link,
-				opportunity,
-				enqueued: new Date().toISOString(),
-				attempts: 0,
-			};
+			console.log(`[Crawler] Parsed ${opportunities.length} opportunities from page ${pageNumber}`);
 
-			await enqueue(env.SUMMARIES, SUMMARIZE_QUEUE_PREFIX, opportunity.link, job);
+			// Process each opportunity
+			for (const opportunity of opportunities) {
+				discovered++;
 
-			// Mark as seen
-			await markSeen(env.SUMMARIES, opportunity.link, {
-				identifier: opportunity.identifier,
-				title: opportunity.title,
-			});
+				// Check if already seen
+				const seen = await isSeen(env.SUMMARIES, opportunity.link);
 
-			enqueued++;
+				if (seen) {
+					skipped++;
+					continue;
+				}
 
-			console.log(`[Crawler] Enqueued new opportunity: ${opportunity.identifier || opportunity.title}`);
+				// Not seen before - enqueue for summarization
+				const job: SummarizeJob = {
+					url: opportunity.link,
+					opportunity,
+					enqueued: new Date().toISOString(),
+					attempts: 0,
+				};
+
+				await enqueue(env.SUMMARIES, SUMMARIZE_QUEUE_PREFIX, opportunity.link, job);
+
+				// Mark as seen
+				await markSeen(env.SUMMARIES, opportunity.link, {
+					identifier: opportunity.identifier,
+					title: opportunity.title,
+				});
+
+				enqueued++;
+
+				console.log(`[Crawler] Enqueued new opportunity: ${opportunity.identifier || opportunity.title}`);
+			}
+
+			pageNumber++;
 		}
 
 		const duration = Date.now() - startTime;
