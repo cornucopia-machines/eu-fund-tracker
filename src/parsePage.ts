@@ -9,10 +9,15 @@ import type { Opportunity } from './types';
 export function parseOpportunities(html: string, baseUrl: string): Opportunity[] {
 	const { document } = parseHTML(html);
 
-	// Collect anchors that point to opportunity detail pages (topic-details or competitive calls etc.)
-	const rawAnchors = Array.from(document.querySelectorAll('a')).filter((a: any) =>
-		(a.getAttribute('href') || '').includes('/screen/opportunities/')
-	) as any[];
+	// Collect anchors only from within sedia-result-card elements
+	const rawAnchors: any[] = [];
+
+	Array.from(document.querySelectorAll('sedia-result-card')).forEach((card: any) => {
+		const anchors = Array.from(card.querySelectorAll('a')).filter((a: any) =>
+			(a.getAttribute('href') || '').includes('/screen/opportunities/')
+		);
+		rawAnchors.push(...anchors);
+	});
 
 	const dedup = new Map<string, { a: any; title: string }>();
 	for (const a of rawAnchors) {
