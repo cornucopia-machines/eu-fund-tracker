@@ -99,16 +99,7 @@ describe('Queue Operations', () => {
 			expect(claimed).toBe(true);
 
 			// Verify processing key exists
-			const hashUrl = (url: string) => {
-				let hash = 0;
-				for (let i = 0; i < url.length; i++) {
-					const char = url.charCodeAt(i);
-					hash = (hash << 5) - hash + char;
-					hash = hash & hash;
-				}
-				return Math.abs(hash).toString(36);
-			};
-			const processingKey = PROCESSING_PREFIX + hashUrl(testUrl);
+			const processingKey = PROCESSING_PREFIX + encodeURIComponent(testUrl);
 			const value = await env.SUMMARIES.get(processingKey);
 			expect(value).toBeTruthy();
 		});
@@ -185,16 +176,7 @@ describe('Queue Operations', () => {
 			expect(queueItem).toBeNull();
 
 			// Job should be in DLQ
-			const hashUrl = (url: string) => {
-				let hash = 0;
-				for (let i = 0; i < url.length; i++) {
-					const char = url.charCodeAt(i);
-					hash = (hash << 5) - hash + char;
-					hash = hash & hash;
-				}
-				return Math.abs(hash).toString(36);
-			};
-			const dlqKey = DLQ_SUMMARIZE_PREFIX + hashUrl(testUrl);
+			const dlqKey = DLQ_SUMMARIZE_PREFIX + encodeURIComponent(testUrl);
 			const dlqItem = await env.SUMMARIES.get(dlqKey);
 			expect(dlqItem).toBeTruthy();
 
@@ -205,7 +187,7 @@ describe('Queue Operations', () => {
 
 		it('should handle missing queue job gracefully', async () => {
 			await claim(env.SUMMARIES, testUrl);
-			const fakeKey = SUMMARIZE_QUEUE_PREFIX + '123456789:fakehash';
+			const fakeKey = SUMMARIZE_QUEUE_PREFIX + '123456789:' + encodeURIComponent('https://fake.url');
 
 			await expect(fail(env.SUMMARIES, fakeKey, testUrl, 'Error', 3, DLQ_SUMMARIZE_PREFIX)).resolves.not.toThrow();
 

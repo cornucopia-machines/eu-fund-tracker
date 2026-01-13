@@ -82,7 +82,7 @@ The `fetch()` handler now returns a simple health check JSON response instead of
 **Shared Utilities** (`src/shared/`):
 
 - `queue.ts` - KV-based queue operations (enqueue, claim, release, complete, fail)
-- `dedup.ts` - URL deduplication tracking (hash-based seen set)
+- `dedup.ts` - URL deduplication tracking (single KV item with URL keys)
 - `discord.ts` - Discord webhook client and embed formatting
 
 **Core Logic**:
@@ -119,17 +119,17 @@ Uses `@cloudflare/vitest-pool-workers` to run tests in Workers environment with 
 
 Queues are implemented using KV with timestamp-prefixed keys:
 
-- **Summarization queue**: `queue:summarize:{timestamp}:{urlHash}`
-- **Processing claims**: `processing:{urlHash}` (15-min TTL, auto-releases on crash)
-- **Seen URLs**: `seen:{urlHash}` (90-day TTL)
-- **Dead letter queue**: `dlq:summarize:{urlHash}` (30-day TTL)
+- **Summarization queue**: `queue:summarize:{timestamp}:{encodedUrl}`
+- **Processing claims**: `processing:{encodedUrl}` (15-min TTL, auto-releases on crash)
+- **Seen URLs**: `seen:all` (single KV item containing all seen URLs, 90-day TTL)
+- **Dead letter queue**: `dlq:summarize:{encodedUrl}` (30-day TTL)
 
 ### Claim/Release Pattern
 
 To prevent concurrent processing:
 
 1. Module polls queue for pending items
-2. Attempts to claim each job via `processing:{urlHash}` key
+2. Attempts to claim each job via `processing:{encodedUrl}` key
 3. If already claimed, skips to next job
 4. Processes job, then either completes (deletes) or fails (increments attempts)
 5. Processing claims auto-expire after 15 minutes if worker crashes

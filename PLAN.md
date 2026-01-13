@@ -40,31 +40,31 @@ src/
 
 ### 1. Seen URLs Tracking
 
-- **Key**: `seen:{urlHash}` (hash of opportunity URL)
-- **Value**: `{url, firstSeen, identifier, title}`
+- **Key**: `seen:all` (single KV item containing all seen URLs)
+- **Value**: `{[url: string]: {firstSeen, identifier, title}}`
 - **TTL**: 90 days
 
 ### 2. Summarization Job Queue
 
-- **Key**: `queue:summarize:{timestamp}:{urlHash}`
+- **Key**: `queue:summarize:{timestamp}:{encodedUrl}`
 - **Value**: `{url, opportunity, enqueued, attempts, lastAttempt?, error?}`
 - **TTL**: 7 days
 
 ### 3. Processing Claims (prevent concurrent processing)
 
-- **Key**: `processing:{urlHash}`
+- **Key**: `processing:{encodedUrl}`
 - **Value**: ISO timestamp
 - **TTL**: 15 minutes (auto-release if worker crashes)
 
 ### 4. Notification Queue
 
-- **Key**: `queue:notify:{timestamp}:{urlHash}`
+- **Key**: `queue:notify:{timestamp}:{encodedUrl}`
 - **Value**: `{opportunity, summarized, attempts, lastAttempt?, error?}`
 - **TTL**: 7 days
 
 ### 5. Dead Letter Queue (permanently failed items)
 
-- **Key**: `dlq:summarize:{urlHash}` or `dlq:notify:{urlHash}`
+- **Key**: `dlq:summarize:{encodedUrl}` or `dlq:notify:{encodedUrl}`
 - **Value**: `{job, failedAt, attempts, lastError, module}`
 - **TTL**: 30 days
 
@@ -92,7 +92,7 @@ crons = [
 1. Fetch EU portal HTML (Puppeteer or fetch)
 2. Parse opportunities using existing `parseOpportunities()`
 3. For each opportunity:
-   - Hash URL, check `seen:{hash}` in KV
+   - Check URL in `seen:all` KV item
    - If unseen: enqueue to `queue:summarize:*` and mark as seen
    - If seen: skip
 4. Log metrics
@@ -101,7 +101,7 @@ crons = [
 
 1. List pending jobs from `queue:summarize:*` (limit: 5)
 2. For each job:
-   - Attempt to claim via `processing:{hash}` (TTL: 15min)
+   - Attempt to claim via `processing:{encodedUrl}` (TTL: 15min)
    - If already claimed: skip
    - Check summary cache (existing KV by URL)
    - If not cached: call `summarizeLink()` (reuse existing code)
@@ -114,7 +114,7 @@ crons = [
 
 1. List pending jobs from `queue:notify:*` (limit: 10)
 2. For each job:
-   - Attempt to claim via `processing:{hash}`
+   - Attempt to claim via `processing:{encodedUrl}`
    - If already claimed: skip
    - Format Discord embed (rich message with fields)
    - POST to Discord webhook
@@ -146,17 +146,18 @@ Rate limiting:
 
 1. **src/shared/dedup.ts** - Simple, no dependencies
 
-   - `hashUrl(url: string): string` - MD5 hash
-   - `isSeen(kv, url): Promise<boolean>` - Check KV
-   - `markSeen(kv, url, metadata): Promise<void>` - Write KV
+   - `isSeen(kv, url): Promise<boolean>` - Check if URL exists in seen database
+   - `markSeen(kv, url, metadata): Promise<void>` - Add URL to seen database
+   - `filterSeen(kv, urls): Promise<Set<string>>` - Filter out seen URLs from a list
+   - `markSeenBatch(kv, items): Promise<void>` - Batch mark multiple URLs as seen
 
 2. **src/shared/queue.ts** - Core queue operations
-   - `enqueue(kv, prefix, key, value, ttl)`
+   - `enqueue(kv, prefix, url, value)` - Add job to queue with encoded URL in key
    - `listPending(kv, prefix, limit): Promise<string[]>` - List queue keys
-   - `claim(kv, key, ttl): Promise<boolean>` - Try to claim
-   - `release(kv, key): Promise<void>` - Release claim
-   - `complete(kv, queueKey, processingKey): Promise<void>` - Remove both
-   - `fail(kv, queueKey, error, maxAttempts): Promise<void>` - Increment or DLQ
+   - `claim(kv, url): Promise<boolean>` - Try to claim using encoded URL
+   - `release(kv, url): Promise<void>` - Release claim
+   - `complete(kv, queueKey, url): Promise<void>` - Remove both queue and processing keys
+   - `fail(kv, queueKey, url, error, maxAttempts, dlqPrefix): Promise<void>` - Increment or DLQ
 
 ### Phase 2: Discord Integration (file 3)
 

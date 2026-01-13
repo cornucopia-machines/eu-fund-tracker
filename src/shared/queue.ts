@@ -1,5 +1,4 @@
 import { Duration } from 'luxon';
-import { hashUrl } from './dedup';
 
 export const SUMMARIZE_QUEUE_PREFIX = 'queue:summarize:';
 export const NOTIFY_QUEUE_PREFIX = 'queue:notify:';
@@ -19,7 +18,7 @@ export interface QueueJob {
 
 /**
  * Enqueue an item to a KV-based queue.
- * Key format: {prefix}{timestamp}:{urlHash}
+ * Key format: {prefix}{timestamp}:{encodedUrl}
  */
 export async function enqueue<T extends QueueJob>(
 	kv: KVNamespace,
@@ -28,8 +27,8 @@ export async function enqueue<T extends QueueJob>(
 	value: T
 ): Promise<string> {
 	const timestamp = Date.now();
-	const urlHash = hashUrl(url);
-	const key = `${prefix}${timestamp}:${urlHash}`;
+	const encodedUrl = encodeURIComponent(url);
+	const key = `${prefix}${timestamp}:${encodedUrl}`;
 
 	await kv.put(key, JSON.stringify(value), {
 		expirationTtl: Duration.fromObject({ days: QUEUE_TTL_DAYS }).as('seconds'),
@@ -52,8 +51,8 @@ export async function listPending(kv: KVNamespace, prefix: string, limit: number
  * Returns true if claim successful, false if already claimed.
  */
 export async function claim(kv: KVNamespace, url: string): Promise<boolean> {
-	const urlHash = hashUrl(url);
-	const processingKey = PROCESSING_PREFIX + urlHash;
+	const encodedUrl = encodeURIComponent(url);
+	const processingKey = PROCESSING_PREFIX + encodedUrl;
 
 	// Try to claim by putting a processing marker
 	const existing = await kv.get(processingKey);
@@ -74,8 +73,8 @@ export async function claim(kv: KVNamespace, url: string): Promise<boolean> {
  * Release a processing claim (e.g., on rate limit, want to retry later).
  */
 export async function release(kv: KVNamespace, url: string): Promise<void> {
-	const urlHash = hashUrl(url);
-	const processingKey = PROCESSING_PREFIX + urlHash;
+	const encodedUrl = encodeURIComponent(url);
+	const processingKey = PROCESSING_PREFIX + encodedUrl;
 	await kv.delete(processingKey);
 }
 
@@ -83,8 +82,8 @@ export async function release(kv: KVNamespace, url: string): Promise<void> {
  * Complete a job successfully - remove from queue and processing.
  */
 export async function complete(kv: KVNamespace, queueKey: string, url: string): Promise<void> {
-	const urlHash = hashUrl(url);
-	const processingKey = PROCESSING_PREFIX + urlHash;
+	const encodedUrl = encodeURIComponent(url);
+	const processingKey = PROCESSING_PREFIX + encodedUrl;
 
 	await Promise.all([kv.delete(queueKey), kv.delete(processingKey)]);
 }
@@ -103,8 +102,8 @@ export async function fail<T extends QueueJob>(
 	maxAttempts: number,
 	dlqPrefix: string
 ): Promise<void> {
-	const urlHash = hashUrl(url);
-	const processingKey = PROCESSING_PREFIX + urlHash;
+	const encodedUrl = encodeURIComponent(url);
+	const processingKey = PROCESSING_PREFIX + encodedUrl;
 
 	// Get current job
 	const raw = await kv.get(queueKey);
@@ -121,7 +120,7 @@ export async function fail<T extends QueueJob>(
 
 	if (job.attempts >= maxAttempts) {
 		// Move to DLQ
-		const dlqKey = dlqPrefix + urlHash;
+		const dlqKey = dlqPrefix + encodedUrl;
 		const dlqEntry = {
 			job,
 			failedAt: new Date().toISOString(),
