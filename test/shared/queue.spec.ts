@@ -9,7 +9,6 @@ import {
 	fail,
 	getJob,
 	SUMMARIZE_QUEUE_PREFIX,
-	NOTIFY_QUEUE_PREFIX,
 	PROCESSING_PREFIX,
 	DLQ_SUMMARIZE_PREFIX,
 } from '../../src/shared/queue';
@@ -26,7 +25,7 @@ describe('Queue Operations', () => {
 
 	beforeEach(async () => {
 		// Clean up KV before each test
-		const prefixes = [SUMMARIZE_QUEUE_PREFIX, NOTIFY_QUEUE_PREFIX, PROCESSING_PREFIX, DLQ_SUMMARIZE_PREFIX];
+		const prefixes = [SUMMARIZE_QUEUE_PREFIX, PROCESSING_PREFIX, DLQ_SUMMARIZE_PREFIX];
 		for (const prefix of prefixes) {
 			const keys = await env.SUMMARIES.list({ prefix });
 			for (const key of keys.keys) {

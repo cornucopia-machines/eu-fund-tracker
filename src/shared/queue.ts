@@ -1,10 +1,8 @@
 import { Duration } from 'luxon';
 
 export const SUMMARIZE_QUEUE_PREFIX = 'queue:summarize:';
-export const NOTIFY_QUEUE_PREFIX = 'queue:notify:';
 export const PROCESSING_PREFIX = 'processing:';
 export const DLQ_SUMMARIZE_PREFIX = 'dlq:summarize:';
-export const DLQ_NOTIFY_PREFIX = 'dlq:notify:';
 
 const QUEUE_TTL_DAYS = 7;
 const PROCESSING_TTL_MINUTES = 15;
